@@ -314,6 +314,12 @@
         </div>
     </header>
 
+    <!-- PROPORTIONAL SCALE NOTE (Shown while the true-ratio scale is active) -->
+    <div id="scale-note" class="hidden hud-element pointer-events-none fixed top-44 sm:top-28 xl:top-20 left-1/2 -translate-x-1/2 z-[15] glass-panel rounded-xl px-3 py-1.5 text-[10.5px] text-slate-300 leading-snug text-center w-max max-w-[calc(100vw-1rem)]">
+        <span class="text-sky-300 font-semibold">True ratios:</span> planet distances and all body sizes to scale.
+        Each planet and its moon orbits magnified ×100 so they're visible; Sun ×25.
+    </div>
+
     <!-- DISTANCE MEASUREMENT PANEL (Shown while Measure mode is active) -->
     <div id="measure-panel" class="hidden hud-element pointer-events-auto fixed top-44 left-2 sm:left-3 z-[25] glass-panel rounded-2xl p-3 w-[calc(100vw-1rem)] max-w-xs text-xs space-y-2.5">
         <div class="flex items-center justify-between">
@@ -1719,6 +1725,7 @@
             scene.add(sunLight);
 
             createStarfield();
+            applyTrueScaleRatios();
             buildCelestialHierarchy();
             buildNavigationBar();
 
@@ -2372,10 +2379,11 @@
             controls.target.copy(currentWorldPos);
 
             // Smooth camera approach when switching targets
+            // Ease in exponentially so long true-scale flights still land exactly on the target
             if (cameraTransitionAlpha < 1.0) {
-                cameraTransitionAlpha = Math.min(1.0, cameraTransitionAlpha + 0.045);
+                cameraTransitionAlpha = Math.min(1.0, cameraTransitionAlpha + 0.012);
                 const desiredPos = currentWorldPos.clone().add(desiredCamOffset);
-                camera.position.lerp(desiredPos, cameraTransitionAlpha * 0.15);
+                camera.position.lerp(desiredPos, cameraTransitionAlpha >= 1.0 ? 1.0 : 0.12);
             }
 
             previousTargetWorldPos.copy(currentWorldPos);
@@ -2529,6 +2537,9 @@
             const isPortrait = window.innerHeight > window.innerWidth;
             const portraitScale = isPortrait ? 1.35 : 1.0;
 
+            // True-ratio bodies can be far smaller than a scene unit, so let the camera get close to them
+            controls.minDistance = visualSettings.exploreScale ? 1.2 : r * 1.4;
+
             if (d.parentId) {
                 desiredCamOffset.set(r * 5.5 * portraitScale, r * 6.5 * portraitScale, r * 7.5 * portraitScale);
             } else if (d.id === 'sun') {
@@ -2604,7 +2615,13 @@
             document.querySelectorAll('#celestial-nav-bar button, #left-hierarchy-list button').forEach(b => b.classList.remove('active'));
             document.getElementById('nav-btn-overview').classList.add('active');
             const isPortrait = window.innerHeight > window.innerWidth;
-            camera.position.set(0, isPortrait ? 125 : 95, isPortrait ? 225 : 175);
+            controls.minDistance = 1.2;
+            if (visualSettings.exploreScale) {
+                camera.position.set(0, isPortrait ? 125 : 95, isPortrait ? 225 : 175);
+            } else {
+                // Pull back far enough to take in the true-scale system out to Neptune
+                camera.position.set(0, isPortrait ? 1500 : 1100, isPortrait ? 2400 : 1900);
+            }
         }
 
         // Interactive Concept Lab Modes
@@ -2667,6 +2684,8 @@
                     ? 'Scale: Explore'
                     : 'Scale: Proportional';
                 document.getElementById('toggle-scale-btn').classList.toggle('active', !visualSettings.exploreScale);
+                document.getElementById('scale-note').classList.toggle('hidden', visualSettings.exploreScale);
+                controls.maxDistance = visualSettings.exploreScale ? 1200 : 4000;
 
                 // Rebuild orbit circle lines to match new orbital radii
                 Object.values(bodyNodes).forEach(node => {
@@ -2725,6 +2744,22 @@
             europa: 4.800e22, ganymede: 1.482e23, callisto: 1.076e23, saturn: 5.683e26, titan: 1.345e23,
             enceladus: 1.080e20, uranus: 8.681e25, titania: 3.400e21, neptune: 1.024e26, triton: 2.139e22
         };
+
+        // Proportional scale: planet distances from the Sun are true to scale (50 units per AU), and
+        // every planet + moon system (body sizes and moon orbits) is magnified by one shared factor so
+        // the planets are visible. The Sun alone uses a smaller factor, or it would swallow Mercury's orbit.
+        const TRUE_SCALE_UNITS_PER_AU = 50;
+        const TRUE_SCALE_SYSTEM_ZOOM = 100;
+        const TRUE_SCALE_SUN_ZOOM = 25;
+
+        function applyTrueScaleRatios() {
+            const unitsPerKm = TRUE_SCALE_UNITS_PER_AU / AU_KM;
+            CELESTIAL_DATA.forEach(d => {
+                const zoom = d.id === 'sun' ? TRUE_SCALE_SUN_ZOOM : TRUE_SCALE_SYSTEM_ZOOM;
+                d.trueRadius = REAL_RADIUS_KM[d.id] * unitsPerKm * zoom;
+                d.trueDist = realOrbitRadiusKm(d) * unitsPerKm * (d.parentId ? TRUE_SCALE_SYSTEM_ZOOM : 1);
+            });
+        }
 
         function formatScientific(x, digits) {
             const exp = Math.floor(Math.log10(x));
@@ -3077,6 +3112,13 @@
 
             updateCelestialKinematics(dtSeconds);
             updateCameraTracking();
+
+            // Scale the near plane with zoom so tiny true-scale moons aren't clipped up close
+            const nearPlane = THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.01, 0.0001, 0.1);
+            if (camera.near !== nearPlane) {
+                camera.near = nearPlane;
+                camera.updateProjectionMatrix();
+            }
 
             // Keep the Milky Way SkyDome centered on the camera so it acts as a true infinite skybox
             if (galaxyGroupRef) {
