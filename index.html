@@ -132,6 +132,34 @@
             border-color: rgba(148, 163, 184, 0.2);
         }
 
+        /* Distance Measurement Midpoint Readout */
+        .measure-label {
+            position: absolute;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+            background: rgba(6, 78, 59, 0.85);
+            border: 1px solid rgba(52, 211, 153, 0.6);
+            color: #d1fae5;
+            z-index: 6;
+        }
+
+        .measure-select {
+            width: 100%;
+            min-width: 0;
+            background: rgba(15, 23, 42, 0.9);
+            border: 1px solid rgba(100, 116, 139, 0.5);
+            border-radius: 8px;
+            padding: 5px 6px;
+            color: #f1f5f9;
+            font-size: 12px;
+        }
+
         /* Custom Range Slider with Touch-Friendly Thumb */
         input[type=range] {
             -webkit-appearance: none;
@@ -278,9 +306,49 @@
                     <i class="fa-solid fa-tag"></i>
                     <span class="hidden sm:inline">Labels</span>
                 </button>
+                <button onclick="toggleMeasureMode()" id="toggle-measure-btn" title="Measure the real distance between two bodies" class="glass-pill px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-ruler text-emerald-400"></i>
+                    <span class="hidden sm:inline">Measure</span>
+                </button>
             </div>
         </div>
     </header>
+
+    <!-- DISTANCE MEASUREMENT PANEL (Shown while Measure mode is active) -->
+    <div id="measure-panel" class="hidden hud-element pointer-events-auto fixed top-44 left-2 sm:left-3 z-[25] glass-panel rounded-2xl p-3 w-[calc(100vw-1rem)] max-w-xs text-xs space-y-2.5">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 font-display font-bold text-sm text-white">
+                <i class="fa-solid fa-ruler text-emerald-400"></i>
+                Measure Distance
+            </div>
+            <button onclick="toggleMeasureMode(false)" title="Close" class="glass-pill w-7 h-7 rounded-lg flex items-center justify-center text-slate-300">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="flex items-center gap-1.5">
+            <select id="measure-from" class="measure-select" onchange="onMeasureSelectChange()"></select>
+            <button onclick="swapMeasureEndpoints()" title="Swap" class="glass-pill w-8 h-7 rounded-lg flex items-center justify-center text-slate-300 shrink-0">
+                <i class="fa-solid fa-right-left"></i>
+            </button>
+            <select id="measure-to" class="measure-select" onchange="onMeasureSelectChange()"></select>
+        </div>
+        <div class="rounded-xl p-2.5 bg-emerald-500/10 border border-emerald-400/30">
+            <div class="text-[10px] text-slate-400 uppercase">Distance (center to center)</div>
+            <div id="measure-km" class="font-mono-code text-base font-bold text-emerald-300 mt-0.5">—</div>
+            <div id="measure-au" class="font-mono-code text-[11px] text-slate-300">—</div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+            <div class="rounded-xl p-2 bg-slate-900/80 border border-slate-700/80">
+                <div class="text-[10px] text-slate-400 uppercase">Light travel time</div>
+                <div id="measure-light" class="font-mono-code text-xs font-semibold text-amber-300 mt-0.5">—</div>
+            </div>
+            <div class="rounded-xl p-2 bg-slate-900/80 border border-slate-700/80">
+                <div class="text-[10px] text-slate-400 uppercase">At Voyager 1 speed</div>
+                <div id="measure-voyager" class="font-mono-code text-xs font-semibold text-sky-300 mt-0.5">—</div>
+            </div>
+        </div>
+        <p class="text-[10.5px] text-slate-400 leading-snug">Uses real orbital radii at the bodies’ current simulated positions, so it changes as time runs.</p>
+    </div>
 
     <!-- LEFT COLLAPSIBLE CELESTIAL NAVIGATOR SIDEBAR DRAWER -->
     <aside id="left-drawer" class="hud-element drawer-transition pointer-events-auto fixed top-28 xl:top-20 left-2 sm:left-3 bottom-28 sm:bottom-24 w-64 sm:w-72 z-20 glass-panel rounded-2xl flex flex-col overflow-hidden -translate-x-[115%]">
@@ -2603,6 +2671,161 @@
             }
         }
 
+        // Distance Measurement Tool
+        // The scene's spacing is compressed for viewing, so distances come from real orbital
+        // radii placed at the same orbital angles and inclined planes the scene uses.
+        const AU_KM = 149597870.7;
+        const LIGHT_KM_S = 299792.458;
+        const VOYAGER_KM_S = 17.0;
+        const PLANET_SEMI_MAJOR_KM = {
+            mercury: 57909227, venus: 108209475, earth: 149598262, mars: 227943824,
+            jupiter: 778340821, saturn: 1426666422, uranus: 2870658186, neptune: 4498396441
+        };
+
+        let measureActive = false;
+        let measureFromId = 'earth';
+        let measureToId = 'sun';
+        let measureLine = null;
+        let measureLabelEl = null;
+
+        function realOrbitRadiusKm(d) {
+            if (PLANET_SEMI_MAJOR_KM[d.id]) return PLANET_SEMI_MAJOR_KM[d.id];
+            const m = d.distanceLabel.match(/^([\d,]+) km/);
+            return m ? parseFloat(m[1].replace(/,/g, '')) : 0;
+        }
+
+        function getRealPositionKm(bodyId) {
+            const node = bodyNodes[bodyId];
+            const d = node.data;
+            const pos = new THREE.Vector3();
+            if (d.orbitalPeriod !== 0) {
+                const orbitAngle = node.initialPhase + (simDays / d.orbitalPeriod) * Math.PI * 2;
+                const r = realOrbitRadiusKm(d);
+                pos.set(Math.cos(orbitAngle) * r, 0, -Math.sin(orbitAngle) * r);
+                pos.applyEuler(node.orbitPlaneGroup.rotation);
+            }
+            if (d.parentId) pos.add(getRealPositionKm(d.parentId));
+            return pos;
+        }
+
+        function formatKm(km) {
+            if (km >= 1e9) return `${(km / 1e9).toFixed(3)} billion km`;
+            if (km >= 1e6) return `${(km / 1e6).toFixed(2)} million km`;
+            return `${Math.round(km).toLocaleString('en-US')} km`;
+        }
+
+        function formatDuration(seconds) {
+            if (seconds < 60) return `${seconds.toFixed(2)} s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)} min ${Math.round(seconds % 60)} s`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ${Math.round((seconds % 3600) / 60)} min`;
+            const days = seconds / 86400;
+            if (days < 365.25) return `${days.toFixed(1)} days`;
+            return `${(days / 365.25).toFixed(1)} years`;
+        }
+
+        function populateMeasureSelects() {
+            ['measure-from', 'measure-to'].forEach(selId => {
+                const sel = document.getElementById(selId);
+                sel.innerHTML = '';
+                CELESTIAL_DATA.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.id;
+                    opt.textContent = `${d.parentId ? '  ' : ''}${d.icon} ${d.name}`;
+                    sel.appendChild(opt);
+                });
+            });
+            document.getElementById('measure-from').value = measureFromId;
+            document.getElementById('measure-to').value = measureToId;
+        }
+
+        function ensureMeasureObjects() {
+            if (measureLine) return;
+            const geo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+            const mat = new THREE.LineDashedMaterial({
+                color: 0x34d399,
+                dashSize: 0.6,
+                gapSize: 0.35,
+                transparent: true,
+                opacity: 0.9,
+                depthTest: false
+            });
+            measureLine = new THREE.Line(geo, mat);
+            measureLine.renderOrder = 20;
+            measureLine.frustumCulled = false;
+            scene.add(measureLine);
+
+            measureLabelEl = document.createElement('div');
+            measureLabelEl.className = 'measure-label';
+            document.getElementById('labels-container').appendChild(measureLabelEl);
+        }
+
+        function toggleMeasureMode(forceState) {
+            measureActive = typeof forceState === 'boolean' ? forceState : !measureActive;
+            document.getElementById('toggle-measure-btn').classList.toggle('active', measureActive);
+            document.getElementById('measure-panel').classList.toggle('hidden', !measureActive);
+
+            if (measureActive) {
+                // Shares the left side with the navigator; on narrow screens it also displaces the inspector
+                isLeftDrawerOpen = false;
+                if (window.innerWidth < 1024) isRightDrawerOpen = false;
+                syncDrawerUI();
+                ensureMeasureObjects();
+                // Start from the focused body, measured against the Sun (or Earth when the Sun is focused)
+                measureFromId = selectedBodyId;
+                measureToId = selectedBodyId === 'sun' ? 'earth' : 'sun';
+                populateMeasureSelects();
+            }
+            if (measureLine) measureLine.visible = measureActive;
+            if (measureLabelEl) measureLabelEl.style.display = measureActive ? 'block' : 'none';
+        }
+
+        function onMeasureSelectChange() {
+            measureFromId = document.getElementById('measure-from').value;
+            measureToId = document.getElementById('measure-to').value;
+        }
+
+        function swapMeasureEndpoints() {
+            [measureFromId, measureToId] = [measureToId, measureFromId];
+            document.getElementById('measure-from').value = measureFromId;
+            document.getElementById('measure-to').value = measureToId;
+        }
+
+        function updateMeasurement() {
+            if (!measureActive || !measureLine) return;
+
+            // 3D dashed line between the two bodies as drawn in the scene
+            const a = new THREE.Vector3();
+            const b = new THREE.Vector3();
+            bodyNodes[measureFromId].positionNode.getWorldPosition(a);
+            bodyNodes[measureToId].positionNode.getWorldPosition(b);
+            const posAttr = measureLine.geometry.attributes.position;
+            posAttr.setXYZ(0, a.x, a.y, a.z);
+            posAttr.setXYZ(1, b.x, b.y, b.z);
+            posAttr.needsUpdate = true;
+            measureLine.computeLineDistances();
+
+            // Real physical distance
+            const km = measureFromId === measureToId
+                ? 0
+                : getRealPositionKm(measureFromId).distanceTo(getRealPositionKm(measureToId));
+            const kmText = formatKm(km);
+            document.getElementById('measure-km').textContent = kmText;
+            document.getElementById('measure-au').textContent = `${(km / AU_KM).toFixed(km < AU_KM * 0.01 ? 5 : 3)} AU`;
+            document.getElementById('measure-light').textContent = formatDuration(km / LIGHT_KM_S);
+            document.getElementById('measure-voyager').textContent = formatDuration(km / VOYAGER_KM_S);
+
+            // Midpoint readout projected to screen
+            const mid = a.clone().add(b).multiplyScalar(0.5).project(camera);
+            if (mid.z > 1.0 || measureFromId === measureToId) {
+                measureLabelEl.style.display = 'none';
+            } else {
+                measureLabelEl.style.display = 'block';
+                measureLabelEl.style.left = `${(mid.x * 0.5 + 0.5) * window.innerWidth}px`;
+                measureLabelEl.style.top = `${(-mid.y * 0.5 + 0.5) * window.innerHeight}px`;
+                measureLabelEl.textContent = kmText;
+            }
+        }
+
         // Time Controls
         function togglePlayPause() {
             isPlaying = !isPlaying;
@@ -2685,6 +2908,7 @@
             if (isLeftDrawerOpen && window.innerWidth < 1024) {
                 isRightDrawerOpen = false;
             }
+            if (isLeftDrawerOpen && measureActive) toggleMeasureMode(false);
             syncDrawerUI();
         }
 
@@ -2693,6 +2917,7 @@
             // On narrow screens (< 1024px), prevent left and right drawers from overlapping
             if (isRightDrawerOpen && window.innerWidth < 1024) {
                 isLeftDrawerOpen = false;
+                if (measureActive) toggleMeasureMode(false);
             }
             syncDrawerUI();
         }
@@ -2765,6 +2990,7 @@
             }
 
             updateFloatingLabels();
+            updateMeasurement();
 
             renderer.render(scene, camera);
         }
