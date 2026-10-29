@@ -512,6 +512,16 @@
                     <div class="text-[10px] text-slate-400 uppercase">Distance</div>
                     <div id="stat-distance" class="font-mono-code text-xs sm:text-sm font-semibold text-amber-300 mt-0.5">1.00 AU</div>
                 </div>
+                <div class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div class="text-[10px] text-slate-400 uppercase">Diameter</div>
+                    <div id="stat-diameter" class="font-mono-code text-xs sm:text-sm font-semibold text-violet-300 mt-0.5">12,742 km</div>
+                    <div id="stat-diameter-rel" class="font-mono-code text-[10px] text-slate-400">1 Earth</div>
+                </div>
+                <div class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div class="text-[10px] text-slate-400 uppercase">Mass</div>
+                    <div id="stat-mass" class="font-mono-code text-xs sm:text-sm font-semibold text-rose-300 mt-0.5">5.97 × 10²⁴ kg</div>
+                    <div id="stat-mass-rel" class="font-mono-code text-[10px] text-slate-400">1 Earth</div>
+                </div>
             </div>
 
             <!-- Scientific Description -->
@@ -2552,6 +2562,10 @@
             document.getElementById('stat-rotation').textContent = rotStr;
             document.getElementById('stat-tilt').textContent = `${d.axialTilt}°`;
             document.getElementById('stat-distance').textContent = d.distanceLabel;
+            document.getElementById('stat-diameter').textContent = `${Math.round(REAL_RADIUS_KM[d.id] * 2).toLocaleString('en-US')} km`;
+            document.getElementById('stat-diameter-rel').textContent = d.id === 'earth' ? '1 Earth' : `${formatRatio(REAL_RADIUS_KM[d.id] / REAL_RADIUS_KM.earth)}× Earth`;
+            document.getElementById('stat-mass').textContent = formatMassKg(REAL_MASS_KG[d.id]);
+            document.getElementById('stat-mass-rel').textContent = d.id === 'earth' ? '1 Earth' : `${formatRatio(REAL_MASS_KG[d.id] / REAL_MASS_KG.earth)}× Earth`;
             document.getElementById('info-description').textContent = d.description;
 
             // Populate Related Moons or Parent Planet buttons
@@ -2704,6 +2718,24 @@
             enceladus: 252.1, uranus: 25362, titania: 788.4, neptune: 24622, triton: 1353.4
         };
 
+        // Masses in kg
+        const REAL_MASS_KG = {
+            sun: 1.989e30, mercury: 3.301e23, venus: 4.867e24, earth: 5.972e24, moon: 7.342e22,
+            mars: 6.417e23, phobos: 1.066e16, deimos: 1.476e15, jupiter: 1.898e27, io: 8.932e22,
+            europa: 4.800e22, ganymede: 1.482e23, callisto: 1.076e23, saturn: 5.683e26, titan: 1.345e23,
+            enceladus: 1.080e20, uranus: 8.681e25, titania: 3.400e21, neptune: 1.024e26, triton: 2.139e22
+        };
+
+        function formatScientific(x, digits) {
+            const exp = Math.floor(Math.log10(x));
+            const sup = String(exp).split('').map(c => c === '-' ? '⁻' : '⁰¹²³⁴⁵⁶⁷⁸⁹'[c]).join('');
+            return `${(x / 10 ** exp).toFixed(digits)} × 10${sup}`;
+        }
+
+        function formatMassKg(kg) {
+            return `${formatScientific(kg, 2)} kg`;
+        }
+
         let measureActive = false;
         let measureFromId = 'earth';
         let measureToId = 'sun';
@@ -2818,6 +2850,7 @@
         function formatRatio(x) {
             if (x >= 100) return Math.round(x).toLocaleString('en-US');
             if (x >= 10) return x.toFixed(1);
+            if (x < 0.001) return formatScientific(x, 1);
             if (x < 0.1) return x.toPrecision(2);
             return x.toFixed(2);
         }
