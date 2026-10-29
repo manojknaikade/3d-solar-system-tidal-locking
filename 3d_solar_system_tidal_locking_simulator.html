@@ -1,0 +1,2733 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Solaris 3D — Interactive Solar System & Astrophysics Lab</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;600&display=swap');
+
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            height: 100dvh;
+            overflow: hidden;
+            background-color: #030712;
+            font-family: 'Inter', sans-serif;
+            color: #f8fafc;
+            touch-action: none;
+        }
+
+        .font-display {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+
+        .font-mono-code {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        #canvas-container {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* Glassmorphism panels */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+        }
+
+        .glass-pill {
+            background: rgba(30, 41, 59, 0.78);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .glass-pill:hover {
+            background: rgba(51, 65, 85, 0.92);
+            border-color: rgba(56, 189, 248, 0.5);
+            transform: translateY(-1px);
+        }
+
+        .glass-pill.active {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.38), rgba(59, 130, 246, 0.38));
+            border-color: #38bdf8;
+            box-shadow: 0 0 15px rgba(56, 189, 248, 0.35);
+        }
+
+        /* Hide scrollbars utility for horizontal pill bars */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Custom Scrollbars */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.4);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(100, 116, 139, 0.5);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(56, 189, 248, 0.7);
+        }
+
+        /* 3D Floating HTML Labels */
+        .celestial-label {
+            position: absolute;
+            transform: translate(-50%, -140%);
+            pointer-events: auto;
+            cursor: pointer;
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.03em;
+            white-space: nowrap;
+            background: rgba(15, 23, 42, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            color: #e2e8f0;
+            transition: background 0.15s, transform 0.15s, border-color 0.15s;
+            z-index: 5;
+        }
+        .celestial-label:hover {
+            background: rgba(14, 165, 233, 0.85);
+            color: #fff;
+            border-color: #7dd3fc;
+            transform: translate(-50%, -140%) scale(1.08);
+            z-index: 15;
+        }
+        .celestial-label.moon-label {
+            font-size: 9.5px;
+            padding: 1px 6px;
+            background: rgba(15, 23, 42, 0.6);
+            color: #94a3b8;
+            border-color: rgba(148, 163, 184, 0.2);
+        }
+
+        /* Custom Range Slider with Touch-Friendly Thumb */
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: transparent;
+            cursor: pointer;
+            height: 28px;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            background: rgba(51, 65, 85, 0.9);
+            height: 6px;
+            border-radius: 999px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            margin-top: -6px;
+            background-color: #38bdf8;
+            height: 18px;
+            width: 18px;
+            border-radius: 50%;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+            border: 2px solid #ffffff;
+        }
+
+        /* Drawer state transitions */
+        .drawer-transition {
+            transition: transform 0.32s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+        }
+
+        body.zen-mode .hud-element {
+            opacity: 0 !important;
+            pointer-events: none !important;
+            transform: scale(0.98);
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.65; }
+            50% { opacity: 1; }
+        }
+        .animate-glow {
+            animation: pulseGlow 2.4s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="relative select-none">
+
+    <!-- 3D WebGL Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Floating 3D Labels Container -->
+    <div id="labels-container" class="pointer-events-none absolute inset-0 overflow-hidden z-10"></div>
+
+    <!-- ZEN MODE EXIT FLOATING BUTTON (Visible only when Zen / Hide UI mode is active) -->
+    <button id="zen-exit-btn" onclick="toggleZenMode()" class="hidden fixed top-3 right-3 z-50 glass-panel px-3.5 py-2 rounded-xl text-xs font-semibold text-sky-300 hover:text-white flex items-center gap-2 shadow-2xl border border-sky-400/40">
+        <i class="fa-solid fa-eye"></i>
+        <span>Show UI</span>
+    </button>
+
+    <!-- TOP NAVIGATION & LAB HEADER -->
+    <header class="hud-element drawer-transition pointer-events-none fixed top-0 left-0 right-0 z-30 p-2 sm:p-3 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-2">
+        <!-- Row 1: Brand, Simulation Clock & Quick Drawer/Zen Toggles -->
+        <div class="pointer-events-auto glass-panel rounded-2xl px-3 py-2 flex items-center justify-between gap-2 sm:gap-4">
+            <div class="flex items-center gap-2.5 min-w-0">
+                <!-- Left Navigator Drawer Toggle Button -->
+                <button onclick="toggleLeftDrawer()" id="top-nav-drawer-btn" title="Toggle Celestial Navigator Sidebar" class="glass-pill w-9 h-9 rounded-xl flex items-center justify-center text-sky-300 shrink-0">
+                    <i class="fa-solid fa-bars-staggered text-sm"></i>
+                </button>
+
+                <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-400 via-orange-500 to-red-600 hidden xs:flex sm:flex items-center justify-center shadow-lg shadow-orange-500/30 shrink-0">
+                    <i class="fa-solid fa-sun text-white text-sm animate-spin" style="animation-duration: 20s;"></i>
+                </div>
+                <div class="truncate">
+                    <div class="flex items-center gap-1.5">
+                        <h1 class="font-display font-bold text-sm sm:text-base tracking-tight text-white truncate">SOLARIS <span class="text-sky-400 font-normal text-[10px] px-1.5 py-0.5 rounded bg-sky-500/10 border border-sky-400/30">3D LAB</span></h1>
+                    </div>
+                    <p class="text-[10px] text-slate-400 hidden md:block truncate">Orbital Mechanics, Spin Resonance & Tidal Locking</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+                <!-- Live Simulation Clock -->
+                <div class="text-right">
+                    <div class="text-[9px] uppercase tracking-wider text-slate-400 font-semibold hidden sm:block">Simulation UTC</div>
+                    <div id="sim-date-display" class="font-mono-code text-[11px] sm:text-xs font-semibold text-sky-300 bg-slate-900/70 px-2 py-1 rounded-lg border border-slate-800">2026-10-28 12:00</div>
+                </div>
+
+                <!-- Right Inspector Drawer Toggle Button -->
+                <button onclick="toggleInfoPanel()" id="top-info-drawer-btn" title="Toggle Inspector & Lab Telemetry" class="glass-pill w-9 h-9 rounded-xl flex items-center justify-center text-emerald-300 shrink-0">
+                    <i class="fa-solid fa-sliders text-sm"></i>
+                </button>
+
+                <!-- Zen / Declutter UI Button -->
+                <button onclick="toggleZenMode()" title="Zen Mode: Hide HUD for Unobstructed 3D View" class="glass-pill w-9 h-9 rounded-xl flex items-center justify-center text-slate-300 hover:text-white shrink-0">
+                    <i class="fa-solid fa-expand text-sm"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Row 2: Scrollable Concept Labs & Visual Toggles Bar -->
+        <div class="pointer-events-auto glass-panel rounded-2xl p-1.5 flex items-center justify-between gap-1.5 overflow-x-auto no-scrollbar">
+            <!-- Concept Tour Modes -->
+            <div class="flex items-center gap-1 bg-slate-900/80 p-1 rounded-xl border border-slate-800 shrink-0">
+                <button onclick="setLabMode('free')" id="mode-btn-free" class="glass-pill active px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-compass text-sky-400"></i>
+                    <span>Explore</span>
+                </button>
+                <button onclick="setLabMode('tidal')" id="mode-btn-tidal" class="glass-pill px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-medium flex items-center gap-1.5 text-amber-200 shrink-0">
+                    <i class="fa-solid fa-magnet text-amber-400"></i>
+                    <span>Tidal Lock Lab</span>
+                </button>
+                <button onclick="setLabMode('mercury')" id="mode-btn-mercury" class="glass-pill px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-sync text-purple-400"></i>
+                    <span>3:2 Resonance</span>
+                </button>
+                <button onclick="setLabMode('tilt')" id="mode-btn-tilt" class="glass-pill px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-compass-drafting text-emerald-400"></i>
+                    <span>Axial Tilts</span>
+                </button>
+                <button onclick="setLabMode('kepler')" id="mode-btn-kepler" class="glass-pill px-2.5 py-1.5 rounded-lg text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-bezier-curve text-pink-400"></i>
+                    <span>Kepler Orbits</span>
+                </button>
+            </div>
+
+            <div class="h-5 w-[1px] bg-slate-700/60 shrink-0 mx-0.5"></div>
+
+            <!-- Visual Aid Toggles -->
+            <div class="flex items-center gap-1 shrink-0">
+                <button onclick="toggleVisualSetting('scale')" id="toggle-scale-btn" title="Switch between Explore Scale and Realistic Distance Ratio" class="glass-pill px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-up-right-and-down-left-from-center text-sky-400"></i>
+                    <span id="scale-label">Scale: Explore</span>
+                </button>
+                <button onclick="toggleVisualSetting('orbits')" id="toggle-orbits-btn" title="Toggle Orbital Paths" class="glass-pill active px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-circle-notch"></i>
+                    <span class="hidden sm:inline">Orbits</span>
+                </button>
+                <button onclick="toggleVisualSetting('vectors')" id="toggle-vectors-btn" title="Toggle Prime Meridian & Tidal Locking Arrows & Axis Poles" class="glass-pill active px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-location-arrow text-amber-400"></i>
+                    <span class="hidden sm:inline">Vectors</span>
+                </button>
+                <button onclick="toggleVisualSetting('labels')" id="toggle-labels-btn" title="Toggle 3D Floating Names" class="glass-pill active px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0">
+                    <i class="fa-solid fa-tag"></i>
+                    <span class="hidden sm:inline">Labels</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- LEFT COLLAPSIBLE CELESTIAL NAVIGATOR SIDEBAR DRAWER -->
+    <aside id="left-drawer" class="hud-element drawer-transition pointer-events-auto fixed top-28 xl:top-20 left-2 sm:left-3 bottom-28 sm:bottom-24 w-64 sm:w-72 z-20 glass-panel rounded-2xl flex flex-col overflow-hidden -translate-x-[115%]">
+        <div class="p-3 border-b border-slate-800/80 flex items-center justify-between bg-slate-900/70">
+            <div class="flex items-center gap-2">
+                <i class="fa-solid fa-satellite-dish text-sky-400 text-xs"></i>
+                <h2 class="font-display font-bold text-xs sm:text-sm uppercase tracking-wider text-white">Celestial Navigator</h2>
+            </div>
+            <button onclick="toggleLeftDrawer(false)" class="glass-pill w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-white text-xs">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+        </div>
+
+        <div class="p-2.5 border-b border-slate-800/60 bg-slate-950/40">
+            <button onclick="resetCameraToSystem()" class="w-full glass-pill py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 text-amber-300">
+                <i class="fa-solid fa-solar-system"></i>
+                <span>Full Solar System Overview</span>
+            </button>
+        </div>
+
+        <!-- Hierarchical Tree of Sun, Planets, and Moons -->
+        <div id="left-hierarchy-list" class="p-2.5 overflow-y-auto flex-1 space-y-1.5 text-xs">
+            <!-- Populated dynamically -->
+        </div>
+    </aside>
+
+    <!-- RIGHT SIDE EDUCATIONAL, TELEMETRY & TIDAL LOCKING LAB DRAWER -->
+    <aside id="info-panel" class="hud-element drawer-transition pointer-events-auto fixed top-28 xl:top-20 right-2 sm:right-3 bottom-28 sm:bottom-24 w-[calc(100vw-1rem)] max-w-sm sm:w-80 md:w-96 z-20 glass-panel rounded-2xl flex flex-col overflow-hidden">
+        <!-- Selected Body Header -->
+        <div class="p-3 sm:p-4 border-b border-slate-800/80 flex items-center justify-between bg-gradient-to-r from-slate-900/90 to-slate-800/50 shrink-0">
+            <div class="flex items-center gap-2.5 min-w-0">
+                <div id="info-badge-icon" class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-300 font-display font-bold text-base sm:text-lg shrink-0">
+                    ⊕
+                </div>
+                <div class="min-w-0">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <h2 id="info-name" class="font-display font-bold text-base sm:text-lg text-white leading-none truncate">Earth</h2>
+                        <span id="info-type" class="text-[9px] sm:text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-400/30 font-semibold">Terrestrial Planet</span>
+                    </div>
+                    <p id="info-subtitle" class="text-[11px] text-slate-400 mt-1 truncate">3rd Planet from the Sun</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+                <button onclick="resetCameraToSystem()" title="Zoom Out to Solar System Overview" class="glass-pill w-8 h-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white text-xs">
+                    <i class="fa-solid fa-globe"></i>
+                </button>
+                <button onclick="toggleInfoPanel(false)" title="Collapse Panel" class="glass-pill w-8 h-8 rounded-lg flex items-center justify-center text-slate-300 hover:text-white text-xs">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Scrollable Content (Includes Tidal Locking Lab when active so panels never collide!) -->
+        <div class="p-3 sm:p-4 overflow-y-auto flex-1 space-y-3.5 text-xs">
+
+            <!-- TIDAL LOCKING INTERACTIVE LAB SECTION (Embedded inside the responsive inspector drawer) -->
+            <div id="tidal-lab-banner" class="hidden rounded-xl p-3 bg-amber-500/10 border border-amber-400/40 space-y-2.5">
+                <div class="flex items-start justify-between gap-2">
+                    <div>
+                        <span class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-amber-500/25 text-amber-300 rounded border border-amber-400/30">Interactive Lab</span>
+                        <h3 id="lab-banner-title" class="font-display font-bold text-sm text-white mt-1">Synchronous Rotation (Tidal Locking)</h3>
+                    </div>
+                    <button onclick="setLabMode('free')" class="text-slate-400 hover:text-white text-xs p-1" title="Exit Lab Mode">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <p id="lab-banner-desc" class="text-[11.5px] text-slate-200 leading-relaxed">
+                    A tidally locked moon takes the <strong class="text-amber-300">exact same time to rotate once on its axis as it takes to complete one orbit</strong> around its parent planet (1:1 spin-orbit ratio). Watch the <span class="text-emerald-400 font-semibold">Green Sub-Planetary Vector</span> fixed to the Moon's surface!
+                </p>
+
+                <!-- Interactive Lab Experiment Switcher -->
+                <div id="tidal-experiment-controls" class="bg-slate-950/80 rounded-xl p-2 border border-slate-700/70">
+                    <div class="text-[9px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Compare Moon Rotation Behavior:</div>
+                    <div class="grid grid-cols-3 gap-1">
+                        <button onclick="setTidalExperiment('locked')" id="exp-btn-locked" class="glass-pill active py-1.5 px-1.5 rounded-lg text-[10px] font-semibold text-center leading-tight">
+                            <i class="fa-solid fa-lock text-emerald-400 block mb-0.5"></i>
+                            1:1 Locked
+                        </button>
+                        <button onclick="setTidalExperiment('norotation')" id="exp-btn-norotation" class="glass-pill py-1.5 px-1.5 rounded-lg text-[10px] font-semibold text-center leading-tight">
+                            <i class="fa-solid fa-ban text-rose-400 block mb-0.5"></i>
+                            Zero Spin
+                        </button>
+                        <button onclick="setTidalExperiment('fastspin')" id="exp-btn-fastspin" class="glass-pill py-1.5 px-1.5 rounded-lg text-[10px] font-semibold text-center leading-tight">
+                            <i class="fa-solid fa-bolt text-sky-400 block mb-0.5"></i>
+                            Fast 3x Spin
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Telemetry Readout for Tidal Lock -->
+                <div class="grid grid-cols-3 gap-1.5 text-center bg-slate-950/80 rounded-xl p-2 border border-slate-800">
+                    <div>
+                        <div class="text-[9px] text-slate-400">Orbits</div>
+                        <div id="telemetry-orbits" class="font-mono-code text-xs font-bold text-sky-400">0.00</div>
+                    </div>
+                    <div>
+                        <div class="text-[9px] text-slate-400">Rotations</div>
+                        <div id="telemetry-rotations" class="font-mono-code text-xs font-bold text-amber-400">0.00</div>
+                    </div>
+                    <div>
+                        <div class="text-[9px] text-slate-400">Lock Error</div>
+                        <div id="telemetry-angle" class="font-mono-code text-xs font-bold text-emerald-400">0.0°</div>
+                    </div>
+                </div>
+
+                <!-- Quick Jump between Tidally Locked Systems -->
+                <div class="flex flex-wrap items-center justify-between gap-1 text-[10.5px] pt-1">
+                    <span class="text-slate-400">Presets:</span>
+                    <div class="flex flex-wrap gap-1">
+                        <button onclick="selectBody('moon')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-sky-500/30 text-sky-300 border border-slate-700">Earth-Moon</button>
+                        <button onclick="selectBody('io')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-sky-500/30 text-amber-300 border border-slate-700">Jupiter-Io</button>
+                        <button onclick="selectBody('titan')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-sky-500/30 text-orange-300 border border-slate-700">Saturn-Titan</button>
+                        <button onclick="selectBody('mercury')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-sky-500/30 text-purple-300 border border-slate-700">Mercury 3:2</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tidal Locking / Spin Resonance Status Badge -->
+            <div id="info-resonance-box" class="p-3 rounded-xl bg-slate-900/90 border border-slate-700/80">
+                <div class="flex items-center justify-between gap-2 mb-1">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                        <i class="fa-solid fa-rotate"></i> Rotational Dynamics
+                    </span>
+                    <span id="info-lock-badge" class="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">Prograde Spin</span>
+                </div>
+                <p id="info-resonance-text" class="text-slate-300 leading-relaxed text-[11.5px]">
+                    Earth rotates once every 23.93 hours with an axial tilt of 23.44°, driving our seasonal cycles.
+                </p>
+            </div>
+
+            <!-- Key Orbital & Physical Metrics Grid -->
+            <div class="grid grid-cols-2 gap-2">
+                <div class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div class="text-[10px] text-slate-400 uppercase">Orbital Period</div>
+                    <div id="stat-orbit" class="font-mono-code text-xs sm:text-sm font-semibold text-white mt-0.5">365.25 days</div>
+                </div>
+                <div class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div class="text-[10px] text-slate-400 uppercase">Rotation Period</div>
+                    <div id="stat-rotation" class="font-mono-code text-xs sm:text-sm font-semibold text-sky-300 mt-0.5">23h 56m</div>
+                </div>
+                <div class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div class="text-[10px] text-slate-400 uppercase">Axial Tilt</div>
+                    <div id="stat-tilt" class="font-mono-code text-xs sm:text-sm font-semibold text-emerald-300 mt-0.5">23.44°</div>
+                </div>
+                <div class="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                    <div class="text-[10px] text-slate-400 uppercase">Distance</div>
+                    <div id="stat-distance" class="font-mono-code text-xs sm:text-sm font-semibold text-amber-300 mt-0.5">1.00 AU</div>
+                </div>
+            </div>
+
+            <!-- Scientific Description -->
+            <div>
+                <h3 class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Astrophysical Overview</h3>
+                <p id="info-description" class="text-slate-300 leading-relaxed text-xs">
+                    Earth is the largest terrestrial planet and the only known astronomical object to harbor life. Its large Moon stabilizes Earth's axial tilt and gradually slows Earth's rotation via tidal friction.
+                </p>
+            </div>
+
+            <!-- Satellites / Moons Quick List -->
+            <div id="info-moons-section">
+                <h3 class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 flex items-center justify-between">
+                    <span>System Satellites / Parent</span>
+                    <span class="text-[10px] text-sky-400 font-normal">Tap to Focus</span>
+                </h3>
+                <div id="info-moons-list" class="flex flex-wrap gap-1.5"></div>
+            </div>
+
+            <!-- Visual Legend for 3D Markers -->
+            <div class="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 space-y-1">
+                <div class="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">3D Vector Legend</div>
+                <div class="flex items-center gap-2 text-[11px] text-slate-300">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block shrink-0 shadow shadow-emerald-400/50"></span>
+                    <span><strong>Green Arrow:</strong> Prime Meridian / Tidal Lock Vector</span>
+                </div>
+                <div class="flex items-center gap-2 text-[11px] text-slate-300">
+                    <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 inline-block shrink-0 shadow shadow-cyan-400/50"></span>
+                    <span><strong>Cyan Rod:</strong> North/South Rotational Axis & Tilt</span>
+                </div>
+                <div class="flex items-center gap-2 text-[11px] text-slate-300">
+                    <span class="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block shrink-0 shadow shadow-amber-400/50"></span>
+                    <span><strong>Gold Line:</strong> Gravity Line to Parent Body</span>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- FLOATING SIDEBAR RE-OPEN TABS (Shown when drawers are collapsed) -->
+    <button id="open-left-btn" onclick="toggleLeftDrawer(true)" title="Open Celestial Navigator" class="hud-element pointer-events-auto fixed top-32 left-2 sm:left-3 z-20 glass-panel px-2.5 py-2 rounded-xl text-sky-400 hover:text-white shadow-lg flex items-center gap-1.5 text-xs font-medium">
+        <i class="fa-solid fa-compass"></i>
+        <span class="hidden sm:inline">Bodies</span>
+    </button>
+
+    <button id="open-info-btn" onclick="toggleInfoPanel(true)" title="Open Inspector Panel" class="hidden hud-element pointer-events-auto fixed top-32 right-2 sm:right-3 z-20 glass-panel px-2.5 py-2 rounded-xl text-emerald-400 hover:text-white shadow-lg flex items-center gap-1.5 text-xs font-medium">
+        <i class="fa-solid fa-circle-info"></i>
+        <span class="hidden sm:inline">Inspector</span>
+    </button>
+
+    <!-- BOTTOM CONTROL DOCK: PLANET SELECTOR & TIME ENGINE -->
+    <footer class="hud-element drawer-transition pointer-events-none fixed bottom-0 left-0 right-0 z-30 p-2 sm:p-3 flex flex-col gap-1.5 sm:gap-2">
+        <!-- Quick Celestial Body Selector Carousel -->
+        <div class="pointer-events-auto mx-auto max-w-full overflow-x-auto no-scrollbar glass-panel rounded-2xl p-1 sm:p-1.5 flex items-center gap-1 sm:gap-1.5 shadow-2xl">
+            <button onclick="resetCameraToSystem()" id="nav-btn-overview" class="glass-pill px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-semibold flex items-center gap-1.5 shrink-0 text-slate-200">
+                <i class="fa-solid fa-solar-system text-amber-400"></i>
+                <span>Overview</span>
+            </button>
+            <div class="h-4 w-[1px] bg-slate-700 shrink-0"></div>
+            <div id="celestial-nav-bar" class="flex items-center gap-1 sm:gap-1.5 shrink-0">
+                <!-- Populated dynamically with Sun, 8 Planets, and Key Moons -->
+            </div>
+        </div>
+
+        <!-- Compact Time Controls & Speed Presets Bar -->
+        <div class="pointer-events-auto mx-auto w-full max-w-4xl glass-panel rounded-2xl px-3 py-2 flex flex-wrap md:flex-nowrap items-center justify-between gap-2 sm:gap-3">
+            <!-- Play / Pause / Reverse Controls -->
+            <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <button onclick="reverseTimeDirection()" id="btn-reverse" title="Reverse Orbital Time Direction" class="glass-pill w-9 h-9 rounded-xl flex items-center justify-center text-slate-200 hover:text-amber-300">
+                    <i class="fa-solid fa-backward-step text-xs"></i>
+                </button>
+                <button onclick="togglePlayPause()" id="btn-play-pause" class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold flex items-center justify-center shadow-lg shadow-sky-500/30 transition">
+                    <i id="play-pause-icon" class="fa-solid fa-pause text-sm"></i>
+                </button>
+                <div class="ml-0.5">
+                    <div class="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-none">Time Warp</div>
+                    <div id="speed-readout" class="font-mono-code text-[11px] sm:text-xs font-bold text-amber-300 mt-0.5">1.0 Days / sec</div>
+                </div>
+            </div>
+
+            <!-- Continuous Logarithmic Speed Slider -->
+            <div class="flex items-center gap-2 flex-1 min-w-[120px] max-w-xs order-3 md:order-2 w-full md:w-auto">
+                <i class="fa-solid fa-gauge-simple text-slate-400 text-xs"></i>
+                <input id="speed-slider" type="range" min="-2" max="5" step="0.05" value="0" class="w-full" oninput="onSpeedSliderInput(this.value)">
+            </div>
+
+            <!-- Quick Preset Speed Pills -->
+            <div class="flex items-center gap-1 overflow-x-auto no-scrollbar order-2 md:order-3 shrink-0">
+                <button onclick="setTimeWarpDaysPerSec(0.000694, '1 Min/s')" class="glass-pill px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-mono-code">1m/s</button>
+                <button onclick="setTimeWarpDaysPerSec(0.04167, '1 Hr/s')" class="glass-pill px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-mono-code">1h/s</button>
+                <button onclick="setTimeWarpDaysPerSec(1, '1 Day/s')" class="glass-pill active px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-mono-code" id="preset-1d">1d/s</button>
+                <button onclick="setTimeWarpDaysPerSec(7, '1 Wk/s')" class="glass-pill px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-mono-code">1w/s</button>
+                <button onclick="setTimeWarpDaysPerSec(30, '1 Mo/s')" class="glass-pill px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-mono-code">1mo/s</button>
+                <button onclick="setTimeWarpDaysPerSec(365.25, '1 Yr/s')" class="glass-pill px-2 py-1 rounded-lg text-[10px] sm:text-[11px] font-mono-code">1yr/s</button>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        /***********************************************************************
+         * 1. ASTROPHYSICAL DATASET (SUN, 8 PLANETS, MAJOR MOONS)
+         * Real orbital & rotational periods (in Earth days), axial tilts,
+         * orbital inclinations, and dual-scale radii/distances.
+         ***********************************************************************/
+        const CELESTIAL_DATA = [
+            {
+                id: 'sun',
+                name: 'Sun',
+                type: 'G-Type Main-Sequence Star',
+                subtitle: 'Heart of the Solar System',
+                icon: '☉',
+                color: '#f59e0b',
+                exploreRadius: 7.5,
+                trueRadius: 10.0,
+                exploreDist: 0,
+                trueDist: 0,
+                orbitalPeriod: 0,
+                rotationPeriod: 25.38, // Equatorial rotation in days
+                axialTilt: 7.25,
+                inclination: 0,
+                tidallyLocked: false,
+                resonance: 'Differential Rotation (25d equator, 35d poles)',
+                distanceLabel: '0 AU (Center)',
+                description: 'The Sun contains 99.86% of all mass in the Solar System. Its core fuses 600 million tons of hydrogen into helium every second, illuminating and gravitationally binding all planets and moons.'
+            },
+            {
+                id: 'mercury',
+                name: 'Mercury',
+                type: 'Terrestrial Planet',
+                subtitle: '1st Planet • 3:2 Spin-Orbit Resonance',
+                icon: '☿',
+                color: '#a8a29e',
+                exploreRadius: 1.15,
+                trueRadius: 0.38,
+                exploreDist: 16,
+                trueDist: 20,
+                orbitalPeriod: 87.969,
+                rotationPeriod: 58.646, // Exact 2/3 of 87.969!
+                axialTilt: 0.03,
+                inclination: 7.0,
+                tidallyLocked: false,
+                spinOrbitRatio: '3:2 Resonance',
+                resonance: '3:2 Spin-Orbit Resonance (3 rotations per 2 orbits)',
+                distanceLabel: '0.39 AU',
+                description: 'Long thought to be 1:1 tidally locked to the Sun, radar observations in 1965 proved Mercury is locked in a 3:2 spin-orbit resonance: it rotates exactly 3 times on its axis for every 2 orbits around the Sun.'
+            },
+            {
+                id: 'venus',
+                name: 'Venus',
+                type: 'Terrestrial Planet',
+                subtitle: '2nd Planet • Retrograde Rotation',
+                icon: '♀',
+                color: '#fbbf24',
+                exploreRadius: 1.75,
+                trueRadius: 0.95,
+                exploreDist: 25,
+                trueDist: 36,
+                orbitalPeriod: 224.701,
+                rotationPeriod: -243.025, // Negative = Retrograde!
+                axialTilt: 177.36,
+                inclination: 3.39,
+                tidallyLocked: false,
+                resonance: 'Retrograde Spin (Sun rises in the West)',
+                distanceLabel: '0.72 AU',
+                description: 'Venus has an axial tilt of 177.36°, meaning it spins backwards (retrograde) compared to most planets. A sidereal day on Venus (243 Earth days) is actually longer than its year (224.7 Earth days).'
+            },
+            {
+                id: 'earth',
+                name: 'Earth',
+                type: 'Terrestrial Planet',
+                subtitle: '3rd Planet • Ocean World',
+                icon: '⊕',
+                color: '#38bdf8',
+                exploreRadius: 1.9,
+                trueRadius: 1.0,
+                exploreDist: 37,
+                trueDist: 50,
+                orbitalPeriod: 365.256,
+                rotationPeriod: 0.997269,
+                axialTilt: 23.44,
+                inclination: 0.0,
+                tidallyLocked: false,
+                resonance: 'Prograde Rotation (23h 56m sidereal day)',
+                distanceLabel: '1.00 AU',
+                description: 'Earth’s 23.44° axial tilt causes the seasons as different hemispheres lean toward or away from the Sun during its 365.25-day orbit. Gravitational interaction with the Moon slowly lengthens Earth’s day.'
+            },
+            {
+                id: 'moon',
+                name: 'Moon (Luna)',
+                parentId: 'earth',
+                type: 'Natural Satellite',
+                subtitle: 'Earth’s Tidally Locked Companion',
+                icon: '☾',
+                color: '#cbd5e1',
+                exploreRadius: 0.62,
+                trueRadius: 0.27,
+                exploreDist: 5.2,
+                trueDist: 4.5,
+                orbitalPeriod: 27.32166,
+                rotationPeriod: 27.32166, // 1:1 Tidal lock!
+                axialTilt: 6.68,
+                inclination: 5.14,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked (Synchronous Rotation)',
+                distanceLabel: '384,400 km from Earth',
+                description: 'Earth’s Moon is the classic example of 1:1 tidal locking. Earth’s gravity raised tidal bulges in the young Moon, acting as a brake until its rotational period matched its 27.32-day orbital period—forever keeping the Near Side (green arrow) facing Earth.'
+            },
+            {
+                id: 'mars',
+                name: 'Mars',
+                type: 'Terrestrial Planet',
+                subtitle: '4th Planet • The Red Planet',
+                icon: '♂',
+                color: '#f97316',
+                exploreRadius: 1.4,
+                trueRadius: 0.53,
+                exploreDist: 51,
+                trueDist: 76,
+                orbitalPeriod: 686.98,
+                rotationPeriod: 1.02595, // 24h 37m
+                axialTilt: 25.19,
+                inclination: 1.85,
+                tidallyLocked: false,
+                resonance: 'Earth-like Sol (24h 37m) & 25.2° Tilt',
+                distanceLabel: '1.52 AU',
+                description: 'Mars has a rotational period ("sol") of 24 hours and 37 minutes and an axial tilt of 25.19°, giving it seasonal polar ice cap cycles remarkably similar to Earth’s, though lasting nearly twice as long.'
+            },
+            {
+                id: 'phobos',
+                name: 'Phobos',
+                parentId: 'mars',
+                type: 'Captured Asteroid Moon',
+                subtitle: 'Inner Moon of Mars • Ultra-Fast Orbit',
+                icon: '•',
+                color: '#d6d3d1',
+                exploreRadius: 0.32,
+                trueRadius: 0.14,
+                exploreDist: 2.9,
+                trueDist: 2.2,
+                orbitalPeriod: 0.3189, // 7.65 hours! Faster than Mars rotates!
+                rotationPeriod: 0.3189,
+                axialTilt: 0.0,
+                inclination: 1.09,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked (Orbits faster than Mars spins!)',
+                distanceLabel: '9,376 km from Mars',
+                description: 'Phobos is tidally locked to Mars and orbits in just 7 hours 39 minutes—faster than Mars rotates! From the Martian surface, Phobos rises in the west and sets in the east twice every Martian day.'
+            },
+            {
+                id: 'deimos',
+                name: 'Deimos',
+                parentId: 'mars',
+                type: 'Captured Asteroid Moon',
+                subtitle: 'Outer Moon of Mars',
+                icon: '•',
+                color: '#a8a29e',
+                exploreRadius: 0.26,
+                trueRadius: 0.12,
+                exploreDist: 4.3,
+                trueDist: 3.4,
+                orbitalPeriod: 1.263,
+                rotationPeriod: 1.263,
+                axialTilt: 0.9,
+                inclination: 1.79,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked to Mars',
+                distanceLabel: '23,463 km from Mars',
+                description: 'Deimos is the smaller and outer moon of Mars. Like Phobos and Earth’s Moon, it is synchronously locked so the same hemisphere perpetually faces the Martian surface.'
+            },
+            {
+                id: 'jupiter',
+                name: 'Jupiter',
+                type: 'Gas Giant',
+                subtitle: '5th Planet • Fastest Planetary Rotator',
+                icon: '♃',
+                color: '#eab308',
+                exploreRadius: 4.3,
+                trueRadius: 4.8,
+                exploreDist: 75,
+                trueDist: 145,
+                orbitalPeriod: 4332.59,
+                rotationPeriod: 0.4135, // 9h 55m!
+                axialTilt: 3.13,
+                inclination: 1.31,
+                tidallyLocked: false,
+                resonance: 'Rapid Rotation (9h 55m day) & Laplace Moon Resonance',
+                distanceLabel: '5.20 AU',
+                description: 'Despite being the largest planet, Jupiter spins faster than any other planet in the Solar System, completing a rotation in just 9 hours and 55 minutes. Its four Galilean moons are all tidally locked to Jupiter.'
+            },
+            {
+                id: 'io',
+                name: 'Io',
+                parentId: 'jupiter',
+                type: 'Galilean Moon',
+                subtitle: 'Volcanic World • 4:2:1 Laplace Resonance',
+                icon: '◐',
+                color: '#facc15',
+                exploreRadius: 0.55,
+                trueRadius: 0.29,
+                exploreDist: 6.4,
+                trueDist: 6.5,
+                orbitalPeriod: 1.769,
+                rotationPeriod: 1.769,
+                axialTilt: 0.0,
+                inclination: 0.05,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked + 4:2:1 Laplace Orbital Resonance',
+                distanceLabel: '421,700 km from Jupiter',
+                description: 'Io is tidally locked to Jupiter, keeping the same face pointed inward. Because Europa and Ganymede pull Io into an elliptical orbit (4:2:1 Laplace resonance), Jupiter’s immense tidal flexing heats Io’s interior, making it the most volcanically active body in the Solar System.'
+            },
+            {
+                id: 'europa',
+                name: 'Europa',
+                parentId: 'jupiter',
+                type: 'Galilean Moon',
+                subtitle: 'Subsurface Ocean World',
+                icon: '◑',
+                color: '#e0f2fe',
+                exploreRadius: 0.5,
+                trueRadius: 0.25,
+                exploreDist: 8.2,
+                trueDist: 8.2,
+                orbitalPeriod: 3.551,
+                rotationPeriod: 3.551,
+                axialTilt: 0.1,
+                inclination: 0.47,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked (2:1 Resonance with Io)',
+                distanceLabel: '670,900 km from Jupiter',
+                description: 'Europa is tidally locked to Jupiter and completes exactly 1 orbit for every 2 orbits of Io. Tidal heating from this orbital resonance keeps a vast global liquid water ocean warm beneath its fractured icy crust.'
+            },
+            {
+                id: 'ganymede',
+                name: 'Ganymede',
+                parentId: 'jupiter',
+                type: 'Galilean Moon',
+                subtitle: 'Largest Moon in the Solar System',
+                icon: '◒',
+                color: '#cbd5e1',
+                exploreRadius: 0.72,
+                trueRadius: 0.41,
+                exploreDist: 10.4,
+                trueDist: 10.4,
+                orbitalPeriod: 7.154,
+                rotationPeriod: 7.154,
+                axialTilt: 0.2,
+                inclination: 0.2,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked (1:2:4 Laplace Resonance)',
+                distanceLabel: '1,070,400 km from Jupiter',
+                description: 'Larger than the planet Mercury, Ganymede is the only moon known to have its own internally generated magnetic field. It is synchronously locked to Jupiter in a 7.15-day period.'
+            },
+            {
+                id: 'callisto',
+                name: 'Callisto',
+                parentId: 'jupiter',
+                type: 'Galilean Moon',
+                subtitle: 'Ancient Cratered Ice World',
+                icon: '◓',
+                color: '#94a3b8',
+                exploreRadius: 0.66,
+                trueRadius: 0.38,
+                exploreDist: 12.8,
+                trueDist: 13.0,
+                orbitalPeriod: 16.689,
+                rotationPeriod: 16.689,
+                axialTilt: 0.0,
+                inclination: 0.19,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked to Jupiter',
+                distanceLabel: '1,882,700 km from Jupiter',
+                description: 'The outermost of the four Galilean moons, Callisto is tidally locked so the same hemisphere always faces Jupiter, while its leading hemisphere is heavily scarred by ancient impacts.'
+            },
+            {
+                id: 'saturn',
+                name: 'Saturn',
+                type: 'Gas Giant',
+                subtitle: '6th Planet • Jewel of the Ring Systems',
+                icon: '♄',
+                color: '#fde047',
+                exploreRadius: 3.6,
+                trueRadius: 4.0,
+                exploreDist: 105,
+                trueDist: 215,
+                orbitalPeriod: 10759.22,
+                rotationPeriod: 0.444, // 10h 39m
+                axialTilt: 26.73,
+                inclination: 2.49,
+                tidallyLocked: false,
+                hasRings: true,
+                ringInner: 1.35,
+                ringOuter: 2.45,
+                resonance: 'Rapid Rotation (10h 39m) & 26.7° Ring Tilt',
+                distanceLabel: '9.58 AU',
+                description: 'Saturn’s iconic rings are composed of billions of water-ice particles ranging from dust grains to house-sized boulders, orbiting along Saturn’s 26.73° tilted equatorial plane.'
+            },
+            {
+                id: 'titan',
+                name: 'Titan',
+                parentId: 'saturn',
+                type: 'Saturnian Moon',
+                subtitle: 'Dense Nitrogen Atmosphere & Methane Lakes',
+                icon: '◉',
+                color: '#fb923c',
+                exploreRadius: 0.7,
+                trueRadius: 0.4,
+                exploreDist: 10.2,
+                trueDist: 11.2,
+                orbitalPeriod: 15.945,
+                rotationPeriod: 15.945,
+                axialTilt: 0.3,
+                inclination: 0.35,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked to Saturn',
+                distanceLabel: '1,221,870 km from Saturn',
+                description: 'Titan is the second-largest moon in the Solar System and the only moon with a dense atmosphere. Like Earth’s Moon, Titan is tidally locked in a 15.95-day orbit, permanently pointing its prime meridian (0° longitude) toward Saturn.'
+            },
+            {
+                id: 'enceladus',
+                name: 'Enceladus',
+                parentId: 'saturn',
+                type: 'Saturnian Moon',
+                subtitle: 'Cryovolcanic Geyser World',
+                icon: '◦',
+                color: '#f8fafc',
+                exploreRadius: 0.38,
+                trueRadius: 0.18,
+                exploreDist: 6.2,
+                trueDist: 6.8,
+                orbitalPeriod: 1.370,
+                rotationPeriod: 1.370,
+                axialTilt: 0.0,
+                inclination: 0.02,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked (2:1 Resonance with Dione)',
+                distanceLabel: '238,000 km from Saturn',
+                description: 'Enceladus is tidally locked to Saturn and flexed by an orbital resonance with Dione, powering geysers of water vapor and ice crystals from its south polar subsurface ocean.'
+            },
+            {
+                id: 'uranus',
+                name: 'Uranus',
+                type: 'Ice Giant',
+                subtitle: '7th Planet • Extreme 97.8° Sideways Tilt',
+                icon: '♅',
+                color: '#22d3ee',
+                exploreRadius: 2.6,
+                trueRadius: 2.1,
+                exploreDist: 134,
+                trueDist: 290,
+                orbitalPeriod: 30688.5,
+                rotationPeriod: -0.7183, // 17h 14m Retrograde
+                axialTilt: 97.77,
+                inclination: 0.77,
+                tidallyLocked: false,
+                hasRings: true,
+                ringInner: 1.4,
+                ringOuter: 1.85,
+                resonance: 'Extreme 97.77° Axial Tilt ("Rolling on its Side")',
+                distanceLabel: '19.22 AU',
+                description: 'Uranus has an extreme axial tilt of 97.77°, likely caused by a colossal proto-planetary impact early in Solar System history. Its poles experience 42 Earth years of continuous sunlight followed by 42 years of darkness.'
+            },
+            {
+                id: 'titania',
+                name: 'Titania',
+                parentId: 'uranus',
+                type: 'Uranian Moon',
+                subtitle: 'Orbits along Uranus’s 98° Tilted Equator',
+                icon: '◦',
+                color: '#cbd5e1',
+                exploreRadius: 0.42,
+                trueRadius: 0.22,
+                exploreDist: 5.8,
+                trueDist: 5.5,
+                orbitalPeriod: 8.706,
+                rotationPeriod: 8.706,
+                axialTilt: 0.0,
+                inclination: 0.34,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked in Uranus’s Vertical Equatorial Plane',
+                distanceLabel: '435,910 km from Uranus',
+                description: 'Titania is Uranus’s largest moon. It is tidally locked to Uranus and orbits in the planet’s tilted equatorial plane—meaning its orbit is almost perpendicular to the Solar System ecliptic!'
+            },
+            {
+                id: 'neptune',
+                name: 'Neptune',
+                type: 'Ice Giant',
+                subtitle: '8th Planet • Supersonic Winds',
+                icon: '♆',
+                color: '#3b82f6',
+                exploreRadius: 2.5,
+                trueRadius: 2.0,
+                exploreDist: 160,
+                trueDist: 355,
+                orbitalPeriod: 60182.0,
+                rotationPeriod: 0.6713, // 16h 6m
+                axialTilt: 28.32,
+                inclination: 1.77,
+                tidallyLocked: false,
+                resonance: 'Prograde Spin (16h 6m) & Retrograde Moon Triton',
+                distanceLabel: '30.05 AU',
+                description: 'Neptune is the farthest known major planet from the Sun, taking 164.8 Earth years to complete a single orbit. Its winds reach supersonic speeds of over 2,100 km/h.'
+            },
+            {
+                id: 'triton',
+                name: 'Triton',
+                parentId: 'neptune',
+                type: 'Captured Kuiper Belt Moon',
+                subtitle: 'Tidally Locked in a Retrograde Orbit!',
+                icon: '◈',
+                color: '#f1f5f9',
+                exploreRadius: 0.52,
+                trueRadius: 0.27,
+                exploreDist: 5.5,
+                trueDist: 5.2,
+                orbitalPeriod: -5.877, // Negative = Retrograde orbit!
+                rotationPeriod: -5.877, // Tidally locked in retrograde!
+                axialTilt: 0.0,
+                inclination: 23.0,
+                tidallyLocked: true,
+                resonance: '1:1 Tidally Locked in a Retrograde Orbit',
+                distanceLabel: '354,759 km from Neptune',
+                description: 'Triton is the only large moon in the Solar System with a retrograde orbit (orbiting opposite to its planet’s spin), proving it is a captured Kuiper Belt object. Even in a retrograde orbit, it is 1:1 tidally locked to Neptune!'
+            }
+        ];
+
+        /***********************************************************************
+         * 2. PROCEDURAL HIGH-DETAIL CANVAS TEXTURE GENERATOR
+         * Creates photorealistic-style equirectangular maps + Prime Meridian
+         * visual markers for tidal locking comprehension.
+         ***********************************************************************/
+        function createProceduralTexture(bodyData) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            const w = canvas.width;
+            const h = canvas.height;
+            const id = bodyData.id;
+
+            // Deterministic pseudo-random helper
+            let seed = id.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
+            const rand = () => {
+                seed = (seed * 16807) % 2147483647;
+                return (seed - 1) / 2147483646;
+            };
+
+            if (id === 'sun') {
+                const grad = ctx.createLinearGradient(0, 0, 0, h);
+                grad.addColorStop(0, '#ea580c');
+                grad.addColorStop(0.5, '#facc15');
+                grad.addColorStop(1, '#ea580c');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, w, h);
+
+                // Solar granulation & plasma filaments
+                for (let i = 0; i < 1400; i++) {
+                    const x = rand() * w;
+                    const y = rand() * h;
+                    const r = 2 + rand() * 18;
+                    ctx.fillStyle = rand() > 0.4 ? 'rgba(254, 240, 138, 0.22)' : 'rgba(194, 65, 12, 0.25)';
+                    ctx.beginPath();
+                    ctx.arc(x, y, r, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            } else if (id === 'earth') {
+                // Deep oceans
+                const oceanGrad = ctx.createLinearGradient(0, 0, 0, h);
+                oceanGrad.addColorStop(0, '#0f172a');
+                oceanGrad.addColorStop(0.15, '#0369a1');
+                oceanGrad.addColorStop(0.5, '#0284c7');
+                oceanGrad.addColorStop(0.85, '#0369a1');
+                oceanGrad.addColorStop(1, '#0f172a');
+                ctx.fillStyle = oceanGrad;
+                ctx.fillRect(0, 0, w, h);
+
+                // Continents blobs
+                const continents = [
+                    { x: 220, y: 160, rx: 90, ry: 65, color: '#15803d' }, // N America
+                    { x: 300, y: 310, rx: 55, ry: 85, color: '#166534' }, // S America
+                    { x: 520, y: 150, rx: 75, ry: 50, color: '#15803d' }, // Europe
+                    { x: 540, y: 260, rx: 75, ry: 85, color: '#ca8a04' }, // Africa/Sahara
+                    { x: 710, y: 165, rx: 130, ry: 75, color: '#15803d' }, // Asia
+                    { x: 820, y: 350, rx: 55, ry: 40, color: '#b45309' }  // Australia
+                ];
+                continents.forEach(c => {
+                    for (let j = 0; j < 45; j++) {
+                        ctx.fillStyle = j % 4 === 0 ? '#a16207' : c.color;
+                        ctx.beginPath();
+                        ctx.ellipse(
+                            c.x + (rand() - 0.5) * c.rx * 1.2,
+                            c.y + (rand() - 0.5) * c.ry * 1.2,
+                            c.rx * (0.2 + rand() * 0.45),
+                            c.ry * (0.2 + rand() * 0.45),
+                            rand() * Math.PI, 0, Math.PI * 2
+                        );
+                        ctx.fill();
+                    }
+                });
+
+                // Polar ice caps
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillRect(0, 0, w, 34);
+                ctx.fillRect(0, h - 38, w, 38);
+
+                // Subtle atmospheric clouds
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.22)';
+                for (let i = 0; i < 180; i++) {
+                    ctx.beginPath();
+                    ctx.ellipse(rand() * w, rand() * h, 15 + rand() * 45, 3 + rand() * 8, rand() * 0.4, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            } else if (id === 'jupiter' || id === 'saturn') {
+                // Banded Gas Giants
+                const bands = id === 'jupiter'
+                    ? ['#d97706', '#fef3c7', '#b45309', '#fde68a', '#92400e', '#fcd34d', '#d97706', '#fef3c7', '#78350f']
+                    : ['#eab308', '#fef08a', '#ca8a04', '#fde047', '#a16207', '#fef9c3', '#ca8a04'];
+                const grad = ctx.createLinearGradient(0, 0, 0, h);
+                bands.forEach((col, idx) => grad.addColorStop(idx / (bands.length - 1), col));
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, w, h);
+
+                // Atmospheric turbulence streaks
+                for (let i = 0; i < 400; i++) {
+                    ctx.fillStyle = rand() > 0.5 ? 'rgba(255,255,255,0.12)' : 'rgba(120,53,15,0.15)';
+                    ctx.fillRect(rand() * w, rand() * h, 30 + rand() * 120, 2 + rand() * 6);
+                }
+
+                // Great Red Spot on Jupiter
+                if (id === 'jupiter') {
+                    ctx.save();
+                    ctx.translate(w * 0.5, h * 0.64);
+                    ctx.fillStyle = '#dc2626';
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, 52, 30, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#fef2f2';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            } else if (id === 'mars') {
+                ctx.fillStyle = '#c2410c';
+                ctx.fillRect(0, 0, w, h);
+                for (let i = 0; i < 300; i++) {
+                    ctx.fillStyle = rand() > 0.5 ? 'rgba(124, 45, 18, 0.35)' : 'rgba(251, 146, 60, 0.28)';
+                    ctx.beginPath();
+                    ctx.arc(rand() * w, rand() * h, 8 + rand() * 45, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                // Polar ice caps
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillRect(0, 0, w, 22);
+                ctx.fillRect(0, h - 22, w, 22);
+            } else if (id === 'venus' || id === 'titan') {
+                const base = id === 'venus' ? '#d97706' : '#ea580c';
+                const highlight = id === 'venus' ? '#fde68a' : '#fdba74';
+                ctx.fillStyle = base;
+                ctx.fillRect(0, 0, w, h);
+                for (let i = 0; i < 260; i++) {
+                    ctx.fillStyle = highlight;
+                    ctx.globalAlpha = 0.14;
+                    ctx.beginPath();
+                    ctx.ellipse(rand() * w, rand() * h, 40 + rand() * 90, 8 + rand() * 18, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1.0;
+            } else if (id === 'uranus' || id === 'neptune') {
+                const grad = ctx.createLinearGradient(0, 0, 0, h);
+                if (id === 'uranus') {
+                    grad.addColorStop(0, '#0891b2');
+                    grad.addColorStop(0.5, '#67e8f9');
+                    grad.addColorStop(1, '#0e7490');
+                } else {
+                    grad.addColorStop(0, '#1e3a8a');
+                    grad.addColorStop(0.5, '#2563eb');
+                    grad.addColorStop(1, '#1d4ed8');
+                }
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, w, h);
+                for (let i = 0; i < 180; i++) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+                    ctx.fillRect(rand() * w, rand() * h, 40 + rand() * 120, 2 + rand() * 5);
+                }
+            } else {
+                // Cratered Rocky Worlds (Mercury, Moon, Galilean Moons, etc.)
+                ctx.fillStyle = bodyData.color || '#94a3b8';
+                ctx.fillRect(0, 0, w, h);
+
+                // For tidally locked moons, subtly shade the Near Side vs Far Side so users can visually see the hemisphere lock!
+                if (bodyData.tidallyLocked) {
+                    // In Three.js SphereGeometry, UV u=0.5 corresponds to +X axis (which we orient toward the parent planet at angle=0)
+                    // So Near Side is centered around x = w * 0.5 (from w*0.25 to w*0.75)
+                    ctx.fillStyle = 'rgba(16, 185, 129, 0.14)';
+                    ctx.fillRect(w * 0.25, 0, w * 0.5, h);
+
+                    // Draw Near Side Mare / Maria basins on the Moon
+                    if (id === 'moon') {
+                        ctx.fillStyle = 'rgba(51, 65, 85, 0.55)';
+                        const maria = [
+                            [w * 0.45, h * 0.38, 55],
+                            [w * 0.53, h * 0.42, 65],
+                            [w * 0.58, h * 0.48, 45],
+                            [w * 0.41, h * 0.52, 48]
+                        ];
+                        maria.forEach(([mx, my, mr]) => {
+                            ctx.beginPath();
+                            ctx.arc(mx, my, mr, 0, Math.PI * 2);
+                            ctx.fill();
+                        });
+                    }
+                }
+
+                // Impact craters
+                for (let i = 0; i < 320; i++) {
+                    const cx = rand() * w;
+                    const cy = rand() * h;
+                    const cr = 3 + rand() * 22;
+                    ctx.fillStyle = rand() > 0.5 ? 'rgba(15, 23, 42, 0.28)' : 'rgba(255, 255, 255, 0.2)';
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+                    ctx.lineWidth = 1;
+                    ctx.stroke();
+                }
+
+                // Europa red-brown ice lineae cracks
+                if (id === 'europa') {
+                    ctx.strokeStyle = 'rgba(180, 83, 9, 0.45)';
+                    ctx.lineWidth = 2;
+                    for (let i = 0; i < 45; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(rand() * w, rand() * h);
+                        ctx.bezierCurveTo(rand() * w, rand() * h, rand() * w, rand() * h, rand() * w, rand() * h);
+                        ctx.stroke();
+                    }
+                }
+
+                // Io volcanic sulfur calderas
+                if (id === 'io') {
+                    for (let i = 0; i < 35; i++) {
+                        ctx.fillStyle = i % 2 === 0 ? '#dc2626' : '#1c1917';
+                        ctx.beginPath();
+                        ctx.arc(rand() * w, rand() * h, 4 + rand() * 10, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+
+            // Draw a subtle Prime Meridian (0° Longitude) & Equator reference line on Tidally Locked moons & Mercury
+            if (bodyData.tidallyLocked || id === 'mercury') {
+                // Prime Meridian at u = 0.5 (x = w/2)
+                ctx.strokeStyle = '#10b981';
+                ctx.lineWidth = 5;
+                ctx.beginPath();
+                ctx.moveTo(w * 0.5, 0);
+                ctx.lineTo(w * 0.5, h);
+                ctx.stroke();
+
+                // Target bullseye at Sub-Planetary Point (u=0.5, v=0.5)
+                ctx.fillStyle = '#10b981';
+                ctx.beginPath();
+                ctx.arc(w * 0.5, h * 0.5, 14, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 3;
+                ctx.stroke();
+            }
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.anisotropy = 4;
+            return texture;
+        }
+
+        // Procedural Ring Texture for Saturn & Uranus
+        function createRingTexture(isSaturn) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createLinearGradient(0, 0, 512, 0);
+
+            if (isSaturn) {
+                grad.addColorStop(0.0, 'rgba(254, 240, 138, 0.0)');
+                grad.addColorStop(0.12, 'rgba(217, 119, 6, 0.35)');
+                grad.addColorStop(0.38, 'rgba(253, 224, 71, 0.85)');
+                grad.addColorStop(0.58, 'rgba(254, 249, 195, 0.9)');
+                grad.addColorStop(0.64, 'rgba(0, 0, 0, 0.08)'); // Cassini Division!
+                grad.addColorStop(0.69, 'rgba(250, 204, 21, 0.75)');
+                grad.addColorStop(0.92, 'rgba(161, 98, 7, 0.4)');
+                grad.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
+            } else {
+                grad.addColorStop(0.0, 'rgba(103, 232, 249, 0.0)');
+                grad.addColorStop(0.4, 'rgba(103, 232, 249, 0.35)');
+                grad.addColorStop(0.5, 'rgba(0, 0, 0, 0.05)');
+                grad.addColorStop(0.75, 'rgba(165, 243, 252, 0.5)');
+                grad.addColorStop(1.0, 'rgba(103, 232, 249, 0.0)');
+            }
+
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 512, 64);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // True 3D View-Independent Fresnel Corona Material for the Sun
+        // Eliminates flat sprite depth clipping & angle-dependent bright halo artifacts
+        function createSunCoronaMesh(scaleFactor, hexColor, falloffPower, baseOpacity) {
+            const geo = new THREE.SphereGeometry(scaleFactor, 48, 48);
+            const mat = new THREE.ShaderMaterial({
+                uniforms: {
+                    glowColor: { value: new THREE.Color(hexColor) },
+                    falloff: { value: falloffPower },
+                    opacity: { value: baseOpacity }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        vViewPosition = -mvPosition.xyz;
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 glowColor;
+                    uniform float falloff;
+                    uniform float opacity;
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    void main() {
+                        vec3 normal = normalize(vNormal);
+                        vec3 viewDir = normalize(vViewPosition);
+                        float dotNV = max(0.0, dot(normal, viewDir));
+                        float intensity = pow(dotNV, falloff) * opacity;
+                        gl_FragColor = vec4(glowColor, intensity);
+                    }
+                `,
+                side: THREE.BackSide,
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+                depthWrite: false
+            });
+            return new THREE.Mesh(geo, mat);
+        }
+
+        /***********************************************************************
+         * 3. THREE.JS SCENE, CAMERA, LIGHTING & OBJECT GRAPH SETUP
+         ***********************************************************************/
+        let scene, camera, renderer, controls;
+        const bodyNodes = {}; // Map of id -> { data, orbitGroup, positionNode, tiltGroup, mesh, orbitLine, lockVector, gravityLine, labelEl }
+
+        // Simulation State
+        let simDays = 0; // Elapsed simulation days from J2026 epoch
+        let baseDate = new Date('2026-10-28T12:00:00Z');
+        let isPlaying = true;
+        let timeDirection = 1;
+        let daysPerSecond = 1.0; // Default: 1 Earth day per real second
+
+        let selectedBodyId = 'earth';
+        let currentLabMode = 'free'; // 'free' | 'tidal' | 'mercury' | 'tilt' | 'kepler'
+        let tidalExperimentMode = 'locked'; // 'locked' | 'norotation' | 'fastspin'
+
+        const visualSettings = {
+            exploreScale: true,
+            showOrbits: true,
+            showVectors: true,
+            showLabels: true
+        };
+
+        // Smooth camera tracking state
+        let isOverviewMode = false;
+        const previousTargetWorldPos = new THREE.Vector3();
+        let cameraTransitionAlpha = 1.0;
+        const desiredCamOffset = new THREE.Vector3(10, 6, 12);
+
+        // Responsive UI Drawer States
+        let isLeftDrawerOpen = false;
+        let isRightDrawerOpen = window.innerWidth >= 1024; // Auto-open Inspector on desktop, closed on compact screens
+        let starfieldPoints = []; // Stored for 2D projection fallback if WebGL is unavailable
+        let milkyWayCloudNodes = []; // Stored for 2D projection fallback of the Milky Way nebula & dust band
+        let galaxyGroupRef = null; // Centered on camera each frame so the skybox is never clipped
+
+        /**
+         * Creates a WebGLRenderer with progressive fallback options.
+         * If the environment has WebGL disabled or exhausted, returns a seamless
+         * 3D-to-2D Canvas perspective renderer that renders the Three.js scene graph.
+         */
+        function createResilientRenderer(container) {
+            const attempts = [
+                { antialias: true, powerPreference: 'default' },
+                { antialias: false, powerPreference: 'default', failIfMajorPerformanceCaveat: false },
+                { antialias: false }
+            ];
+
+            for (const params of attempts) {
+                try {
+                    const testCanvas = document.createElement('canvas');
+                    const gl = testCanvas.getContext('webgl2', params) ||
+                               testCanvas.getContext('webgl', params) ||
+                               testCanvas.getContext('experimental-webgl', params);
+                    if (gl) {
+                        const r = new THREE.WebGLRenderer({ ...params, canvas: testCanvas, context: gl });
+                        r.setSize(window.innerWidth, window.innerHeight);
+                        r.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+                        r.toneMapping = THREE.ACESFilmicToneMapping;
+                        r.toneMappingExposure = 1.1;
+                        return r;
+                    }
+                } catch (err) {
+                    // Continue to next fallback attempt
+                }
+            }
+
+            // Fallback: Software 3D-to-2D Canvas Perspective Renderer
+            return createCanvas3DFallbackRenderer();
+        }
+
+        function createCanvas3DFallbackRenderer() {
+            const domElement = document.createElement('canvas');
+            const ctx = domElement.getContext('2d');
+            let width = window.innerWidth;
+            let height = window.innerHeight;
+            let dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+            function updateDimensions(w, h) {
+                width = w;
+                height = h;
+                domElement.width = w * dpr;
+                domElement.height = h * dpr;
+                domElement.style.width = `${w}px`;
+                domElement.style.height = `${h}px`;
+            }
+            updateDimensions(width, height);
+
+            const tempVec = new THREE.Vector3();
+            const parentVec = new THREE.Vector3();
+            const arrowEndVec = new THREE.Vector3();
+            const poleEndVec = new THREE.Vector3();
+
+            function projectPoint(worldVec, cam) {
+                const v = worldVec.clone().project(cam);
+                return {
+                    x: (v.x * 0.5 + 0.5) * width,
+                    y: (-v.y * 0.5 + 0.5) * height,
+                    z: v.z
+                };
+            }
+
+            return {
+                domElement,
+                isFallbackRenderer: true,
+                setSize(w, h) {
+                    updateDimensions(w, h);
+                },
+                setPixelRatio(ratio) {
+                    dpr = Math.min(ratio || 1, 2);
+                    updateDimensions(width, height);
+                },
+                render(sceneObj, cam) {
+                    if (!ctx) return;
+                    sceneObj.updateMatrixWorld(true);
+                    cam.updateMatrixWorld(true);
+                    cam.matrixWorldInverse.copy(cam.matrixWorld).invert();
+
+                    ctx.save();
+                    ctx.scale(dpr, dpr);
+
+                    // 1. Deep space background
+                    const bgGrad = ctx.createRadialGradient(width * 0.5, height * 0.5, 10, width * 0.5, height * 0.5, Math.max(width, height) * 0.75);
+                    bgGrad.addColorStop(0, '#0a1128');
+                    bgGrad.addColorStop(1, '#030712');
+                    ctx.fillStyle = bgGrad;
+                    ctx.fillRect(0, 0, width, height);
+
+                    // 2A. Volumetric Milky Way Galactic Band & Nebulae (in 2D fallback)
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'screen';
+                    for (let i = 0; i < milkyWayCloudNodes.length; i++) {
+                        const cloud = milkyWayCloudNodes[i];
+                        tempVec.copy(cloud.dir).multiplyScalar(1000).add(cam.position);
+                        const cp = projectPoint(tempVec, cam);
+                        if (cp.z > -1 && cp.z < 1 && cp.x >= -300 && cp.x <= width + 300 && cp.y >= -300 && cp.y <= height + 300) {
+                            const rPx = cloud.radiusFactor * Math.max(width, height);
+                            const g = ctx.createRadialGradient(cp.x, cp.y, 0, cp.x, cp.y, rPx);
+                            g.addColorStop(0, cloud.innerColor);
+                            g.addColorStop(0.5, cloud.midColor);
+                            g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+                            ctx.fillStyle = g;
+                            ctx.beginPath();
+                            ctx.arc(cp.x, cp.y, rPx, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    }
+                    ctx.restore();
+
+                    // 2B. Background stars & Milky Way star cluster (in 2D fallback)
+                    for (let i = 0; i < starfieldPoints.length; i++) {
+                        const star = starfieldPoints[i];
+                        tempVec.copy(star.dir).multiplyScalar(1000).add(cam.position);
+                        const sp = projectPoint(tempVec, cam);
+                        if (sp.z > -1 && sp.z < 1 && sp.x >= 0 && sp.x <= width && sp.y >= 0 && sp.y <= height) {
+                            ctx.fillStyle = star.cssColor || 'rgba(226, 232, 240, 0.85)';
+                            const sz = (star.size || 1.6) * 0.55;
+                            ctx.beginPath();
+                            ctx.arc(sp.x, sp.y, sz, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    }
+
+                    // 3. Orbital paths
+                    if (visualSettings.showOrbits) {
+                        Object.values(bodyNodes).forEach(node => {
+                            const d = node.data;
+                            const dist = visualSettings.exploreScale ? d.exploreDist : d.trueDist;
+                            if (dist <= 0) return;
+
+                            ctx.beginPath();
+                            const steps = d.parentId ? 48 : 90;
+                            let started = false;
+                            for (let s = 0; s <= steps; s++) {
+                                const a = (s / steps) * Math.PI * 2;
+                                tempVec.set(Math.cos(a) * dist, 0, Math.sin(a) * dist);
+                                tempVec.applyMatrix4(node.orbitPlaneGroup.matrixWorld);
+                                const pt = projectPoint(tempVec, cam);
+                                if (pt.z < 1.0) {
+                                    if (!started) {
+                                        ctx.moveTo(pt.x, pt.y);
+                                        started = true;
+                                    } else {
+                                        ctx.lineTo(pt.x, pt.y);
+                                    }
+                                } else {
+                                    started = false;
+                                }
+                            }
+                            ctx.strokeStyle = d.color || '#38bdf8';
+                            ctx.globalAlpha = d.parentId ? 0.3 : 0.35;
+                            ctx.lineWidth = d.parentId ? 1 : 1.2;
+                            ctx.stroke();
+                            ctx.globalAlpha = 1.0;
+                        });
+                    }
+
+                    // 4. Sort celestial bodies back-to-front by distance to camera
+                    const sortedNodes = Object.values(bodyNodes).map(node => {
+                        node.positionNode.getWorldPosition(tempVec);
+                        const camDist = cam.position.distanceTo(tempVec);
+                        const screenPt = projectPoint(tempVec, cam);
+                        return { node, worldPos: tempVec.clone(), camDist, screenPt };
+                    }).sort((a, b) => b.camDist - a.camDist);
+
+                    const fovRad = THREE.MathUtils.degToRad(cam.fov);
+                    const projScale = (height * 0.5) / Math.tan(fovRad * 0.5);
+
+                    sortedNodes.forEach(({ node, worldPos, camDist, screenPt }) => {
+                        if (screenPt.z > 1.0 || camDist <= 0.1) return;
+                        const d = node.data;
+                        const r3d = visualSettings.exploreScale ? d.exploreRadius : d.trueRadius;
+                        const screenR = Math.max(2.5, (r3d / camDist) * projScale);
+
+                        // Dashed gravity line to parent for tidally locked moons & Mercury
+                        if (visualSettings.showVectors && (d.tidallyLocked || d.id === 'mercury') && d.orbitalPeriod !== 0) {
+                            if (d.parentId && bodyNodes[d.parentId]) {
+                                bodyNodes[d.parentId].positionNode.getWorldPosition(parentVec);
+                            } else {
+                                parentVec.set(0, 0, 0);
+                            }
+                            const parentScreen = projectPoint(parentVec, cam);
+                            if (parentScreen.z < 1.0) {
+                                ctx.save();
+                                ctx.setLineDash([4, 4]);
+                                ctx.strokeStyle = 'rgba(251, 191, 36, 0.55)';
+                                ctx.lineWidth = 1.2;
+                                ctx.beginPath();
+                                ctx.moveTo(screenPt.x, screenPt.y);
+                                ctx.lineTo(parentScreen.x, parentScreen.y);
+                                ctx.stroke();
+                                ctx.restore();
+                            }
+                        }
+
+                        // Sun glow
+                        if (d.id === 'sun') {
+                            const glow = ctx.createRadialGradient(screenPt.x, screenPt.y, screenR * 0.85, screenPt.x, screenPt.y, screenR * 2.1);
+                            glow.addColorStop(0, 'rgba(251, 191, 36, 0.38)');
+                            glow.addColorStop(0.5, 'rgba(245, 158, 11, 0.14)');
+                            glow.addColorStop(1, 'rgba(234, 88, 12, 0)');
+                            ctx.fillStyle = glow;
+                            ctx.beginPath();
+                            ctx.arc(screenPt.x, screenPt.y, screenR * 2.1, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+
+                        // Planetary rings (Saturn & Uranus)
+                        if (d.hasRings) {
+                            ctx.save();
+                            ctx.strokeStyle = d.id === 'saturn' ? 'rgba(253, 224, 71, 0.65)' : 'rgba(103, 232, 249, 0.45)';
+                            ctx.lineWidth = Math.max(2, screenR * 0.35);
+                            ctx.beginPath();
+                            ctx.ellipse(
+                                screenPt.x,
+                                screenPt.y,
+                                screenR * d.ringOuter,
+                                screenR * d.ringOuter * (d.id === 'uranus' ? 0.85 : 0.38),
+                                THREE.MathUtils.degToRad(d.axialTilt),
+                                0,
+                                Math.PI * 2
+                            );
+                            ctx.stroke();
+                            ctx.restore();
+                        }
+
+                        // Planet/Moon Sphere Body
+                        const bodyGrad = ctx.createRadialGradient(
+                            screenPt.x - screenR * 0.3,
+                            screenPt.y - screenR * 0.3,
+                            screenR * 0.1,
+                            screenPt.x,
+                            screenPt.y,
+                            screenR
+                        );
+                        bodyGrad.addColorStop(0, '#ffffff');
+                        bodyGrad.addColorStop(0.25, d.color || '#38bdf8');
+                        bodyGrad.addColorStop(1, '#0f172a');
+
+                        ctx.fillStyle = d.id === 'sun' ? '#facc15' : bodyGrad;
+                        ctx.beginPath();
+                        ctx.arc(screenPt.x, screenPt.y, screenR, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        // 3D Spin Axis & Prime Meridian / Tidal Lock Vector
+                        if (visualSettings.showVectors && d.id !== 'sun') {
+                            // North Pole Axis Rod (Cyan)
+                            poleEndVec.set(0, 1.65, 0);
+                            node.mesh.localToWorld(poleEndVec);
+                            const poleScreen = projectPoint(poleEndVec, cam);
+                            if (poleScreen.z < 1.0) {
+                                ctx.strokeStyle = '#22d3ee';
+                                ctx.lineWidth = 1.5;
+                                ctx.beginPath();
+                                ctx.moveTo(screenPt.x, screenPt.y);
+                                ctx.lineTo(poleScreen.x, poleScreen.y);
+                                ctx.stroke();
+                            }
+
+                            // Prime Meridian / Tidal Lock Vector (+X in mesh local space)
+                            const arrowLen = d.tidallyLocked ? 2.4 : 1.65;
+                            arrowEndVec.set(arrowLen, 0, 0);
+                            node.mesh.localToWorld(arrowEndVec);
+                            const arrowScreen = projectPoint(arrowEndVec, cam);
+                            if (arrowScreen.z < 1.0) {
+                                ctx.strokeStyle = d.tidallyLocked ? '#10b981' : '#f59e0b';
+                                ctx.lineWidth = 2.0;
+                                ctx.beginPath();
+                                ctx.moveTo(screenPt.x, screenPt.y);
+                                ctx.lineTo(arrowScreen.x, arrowScreen.y);
+                                ctx.stroke();
+
+                                ctx.fillStyle = d.tidallyLocked ? '#10b981' : '#f59e0b';
+                                ctx.beginPath();
+                                ctx.arc(arrowScreen.x, arrowScreen.y, 3, 0, Math.PI * 2);
+                                ctx.fill();
+                            }
+                        }
+                    });
+
+                    ctx.restore();
+                }
+            };
+        }
+
+        function initSolarSystem() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+
+            const isPortrait = window.innerHeight > window.innerWidth;
+            camera = new THREE.PerspectiveCamera(isPortrait ? 58 : 48, window.innerWidth / window.innerHeight, 0.1, 8000);
+            camera.position.set(0, 75, 145);
+
+            renderer = createResilientRenderer(container);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.06;
+            controls.minDistance = 1.2;
+            controls.maxDistance = 1200;
+
+            // Lighting: Ambient starlight + intense Central Solar PointLight
+            const ambientLight = new THREE.AmbientLight(0x334155, 0.85);
+            scene.add(ambientLight);
+
+            const sunLight = new THREE.PointLight(0xfffbeb, 2.4, 2500, 0.4);
+            sunLight.position.set(0, 0, 0);
+            scene.add(sunLight);
+
+            createStarfield();
+            buildCelestialHierarchy();
+            buildNavigationBar();
+
+            // Raycaster for clicking directly on 3D planets
+            setupPointerSelection();
+
+            // Sync initial responsive drawer visibility
+            syncDrawerUI();
+
+            // Initial Selection
+            selectBody('earth', false);
+
+            window.addEventListener('resize', onWindowResize);
+            if (window.visualViewport) {
+                window.visualViewport.addEventListener('resize', onWindowResize);
+            }
+        }
+
+        // True 3D Procedural GLSL Shader for the Milky Way Skybox
+        // Uses continuous 3D Fractal Brownian Motion (fBm) noise so there are zero
+        // pixel blocks, zero vertical stripes, and zero hard-edged circles at any zoom level.
+        function createMilkyWayShaderMaterial() {
+            return new THREE.ShaderMaterial({
+                side: THREE.BackSide,
+                depthWrite: false,
+                toneMapped: false,
+                vertexShader: `
+                    varying vec3 vDir;
+                    void main() {
+                        vDir = normalize(position);
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vDir;
+
+                    // 3D value noise for organic cosmic clouds & dust rifts
+                    float hash(vec3 p) {
+                        p = fract(p * 0.3183099 + 0.1);
+                        p *= 17.0;
+                        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+                    }
+
+                    float noise(vec3 x) {
+                        vec3 i = floor(x);
+                        vec3 f = fract(x);
+                        f = f * f * (3.0 - 2.0 * f);
+                        return mix(
+                            mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+                                mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+                            mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+                                mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y),
+                            f.z
+                        );
+                    }
+
+                    float fbm(vec3 p) {
+                        float v = 0.0;
+                        float a = 0.5;
+                        for (int i = 0; i < 5; i++) {
+                            v += a * noise(p);
+                            p = p * 2.03 + vec3(13.7, 29.1, 7.3);
+                            a *= 0.5;
+                        }
+                        return v;
+                    }
+
+                    void main() {
+                        vec3 d = normalize(vDir);
+
+                        // Warp galactic equator slightly with low-frequency 3D noise
+                        float warp = (fbm(d * 2.2) - 0.5) * 0.16;
+                        float lat = abs(d.y + warp);
+
+                        // Smooth Galactic Plane envelope
+                        float band = exp(-lat * 6.5);
+                        float wideGlow = exp(-lat * 2.4);
+
+                        // Sagittarius Galactic Core concentration around +X direction
+                        float coreProximity = max(0.0, d.x);
+                        float coreBulge = pow(coreProximity, 2.8) * exp(-lat * 4.2);
+
+                        // Multi-scale organic star-cloud billow noise
+                        float n1 = fbm(d * 4.5);
+                        float n2 = fbm(d * 11.0 - vec3(2.4, 5.1, 1.8));
+                        float clouds = smoothstep(0.22, 0.82, n1 * 0.65 + n2 * 0.35);
+
+                        // Great Rift dark interstellar dust lanes running through the center of the band
+                        float riftLat = abs(d.y + (n1 - 0.5) * 0.11);
+                        float dustLane = smoothstep(0.36, 0.72, n2) * exp(-riftLat * 18.0);
+
+                        // Deep space background gradient
+                        vec3 col = mix(vec3(0.008, 0.014, 0.035), vec3(0.02, 0.04, 0.09), wideGlow);
+
+                        // Outer sapphire/indigo galactic halo
+                        vec3 outerArmCol = vec3(0.09, 0.20, 0.42);
+                        // Inner silver-blue star cloud spine
+                        vec3 innerSpineCol = vec3(0.32, 0.46, 0.72);
+                        // Warm golden-amber Galactic Core glow
+                        vec3 coreCol = vec3(0.78, 0.54, 0.32);
+                        // Subtle magenta/rose H-II nebula knots
+                        vec3 nebulaTint = vec3(0.45, 0.18, 0.42);
+
+                        col += outerArmCol * wideGlow * clouds * 0.38;
+                        col += innerSpineCol * band * clouds * 0.45;
+                        col += nebulaTint * band * smoothstep(0.55, 0.85, n2) * 0.22;
+                        col += coreCol * coreBulge * (0.45 + 0.55 * clouds) * 0.65;
+
+                        // Carve dark interstellar dust lanes (Great Rift)
+                        col *= (1.0 - dustLane * 0.72);
+
+                        gl_FragColor = vec4(col, 1.0);
+                    }
+                `
+            });
+        }
+
+        // Crisp, anti-aliased circular star shader (eliminates square GL_POINTS artifacts)
+        function createStarPointsShaderMaterial() {
+            return new THREE.ShaderMaterial({
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending,
+                vertexColors: true,
+                vertexShader: `
+                    attribute float aSize;
+                    varying vec3 vColor;
+                    void main() {
+                        vColor = color;
+                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                        gl_PointSize = aSize;
+                        gl_Position = projectionMatrix * mvPosition;
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vColor;
+                    void main() {
+                        vec2 uv = gl_PointCoord - vec2(0.5);
+                        float dist = length(uv) * 2.0;
+                        if (dist > 1.0) discard;
+                        float alpha = pow(1.0 - dist, 2.2);
+                        gl_FragColor = vec4(vColor, alpha * 0.9);
+                    }
+                `
+            });
+        }
+
+        function createStarfield() {
+            starfieldPoints = [];
+            milkyWayCloudNodes = [];
+
+            // Create a dedicated Galactic Frame tilted so the Milky Way sweeps gracefully across the sky
+            const galaxyGroup = new THREE.Group();
+            galaxyGroup.rotation.x = THREE.MathUtils.degToRad(34.0);
+            galaxyGroup.rotation.z = THREE.MathUtils.degToRad(-28.0);
+            galaxyGroup.rotation.y = THREE.MathUtils.degToRad(-95.0);
+            scene.add(galaxyGroup);
+            galaxyGroupRef = galaxyGroup;
+
+            // 1. 3D Procedural GLSL Milky Way SkyDome (Smooth organic fBm nebulae, Galactic Core & Great Rift)
+            const skyGeo = new THREE.SphereGeometry(2400, 64, 48);
+            const skyMat = createMilkyWayShaderMaterial();
+            const skyDome = new THREE.Mesh(skyGeo, skyMat);
+            skyDome.renderOrder = -10;
+            galaxyGroup.add(skyDome);
+
+            // Precompute 3D Milky Way Cloud nodes along the Galactic Equator for the 2D Fallback Renderer
+            const cloudSteps = 64;
+            for (let i = 0; i < cloudSteps; i++) {
+                const theta = (i / cloudSteps) * Math.PI * 2;
+                const coreProximity = Math.pow(Math.max(0, Math.cos(theta * 0.5)), 2.2);
+                const wobble = Math.sin(theta * 3) * 0.08;
+                const localDir = new THREE.Vector3(
+                    Math.cos(theta),
+                    wobble,
+                    Math.sin(theta)
+                ).normalize();
+                const worldDir = localDir.clone().applyEuler(galaxyGroup.rotation);
+
+                const isCore = coreProximity > 0.55;
+                milkyWayCloudNodes.push({
+                    dir: worldDir,
+                    radiusFactor: 0.16 + coreProximity * 0.16,
+                    innerColor: isCore
+                        ? `rgba(251, 191, 36, ${0.07 + coreProximity * 0.10})`
+                        : `rgba(56, 189, 248, ${0.05 + coreProximity * 0.05})`,
+                    midColor: isCore
+                        ? `rgba(244, 114, 182, ${0.035 + coreProximity * 0.05})`
+                        : `rgba(129, 140, 248, ${0.025 + coreProximity * 0.03})`
+                });
+            }
+
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+            // 2. Dense Milky Way Band Stars (4,500 fine circular pinpoint stars concentrated along the Galactic Plane)
+            const mwStarCount = 4500;
+            const mwPositions = new Float32Array(mwStarCount * 3);
+            const mwColors = new Float32Array(mwStarCount * 3);
+            const mwSizes = new Float32Array(mwStarCount);
+
+            for (let i = 0; i < mwStarCount; i++) {
+                const r = 1600 + Math.random() * 500;
+                const theta = Math.random() * Math.PI * 2;
+                const spread = (Math.random() + Math.random() + Math.random() - 1.5) * 0.22;
+                const phi = Math.PI * 0.5 + spread;
+
+                const lx = r * Math.sin(phi) * Math.cos(theta);
+                const ly = r * Math.cos(phi);
+                const lz = r * Math.sin(phi) * Math.sin(theta);
+
+                mwPositions[i * 3] = lx;
+                mwPositions[i * 3 + 1] = ly;
+                mwPositions[i * 3 + 2] = lz;
+
+                const tint = Math.random();
+                let cr = 0.92, cg = 0.95, cb = 1.0, cssColor = 'rgba(226, 232, 240, 0.72)';
+                if (tint > 0.80) {
+                    cr = 0.65; cg = 0.86; cb = 1.0;
+                    cssColor = 'rgba(147, 197, 253, 0.82)';
+                } else if (tint > 0.55) {
+                    cr = 1.0; cg = 0.88; cb = 0.68;
+                    cssColor = 'rgba(253, 224, 71, 0.78)';
+                } else if (tint > 0.42) {
+                    cr = 0.96; cg = 0.78; cb = 0.94;
+                    cssColor = 'rgba(244, 114, 182, 0.75)';
+                }
+
+                // Vary individual star brightness naturally
+                const brightness = 0.35 + Math.pow(Math.random(), 1.8) * 0.65;
+                mwColors[i * 3] = cr * brightness;
+                mwColors[i * 3 + 1] = cg * brightness;
+                mwColors[i * 3 + 2] = cb * brightness;
+
+                // Fine pinpoint star sizes (mostly 1.2px to 2.8px, with a few brighter 3.8px stars)
+                mwSizes[i] = (1.1 + Math.pow(Math.random(), 3.0) * 2.6) * dpr;
+
+                if (i % 3 === 0) {
+                    const worldDir = new THREE.Vector3(lx, ly, lz).normalize().applyEuler(galaxyGroup.rotation);
+                    starfieldPoints.push({ dir: worldDir, cssColor, size: 1.3 + (tint > 0.88 ? 0.8 : 0) });
+                }
+            }
+
+            const mwGeo = new THREE.BufferGeometry();
+            mwGeo.setAttribute('position', new THREE.BufferAttribute(mwPositions, 3));
+            mwGeo.setAttribute('color', new THREE.BufferAttribute(mwColors, 3));
+            mwGeo.setAttribute('aSize', new THREE.BufferAttribute(mwSizes, 1));
+
+            galaxyGroup.add(new THREE.Points(mwGeo, createStarPointsShaderMaterial()));
+
+            // 3. All-Sky Background & Prominent Navigation Stars (2,000 isotropic stars)
+            const bgStarCount = 2000;
+            const bgPositions = new Float32Array(bgStarCount * 3);
+            const bgColors = new Float32Array(bgStarCount * 3);
+            const bgSizes = new Float32Array(bgStarCount);
+
+            for (let i = 0; i < bgStarCount; i++) {
+                const r = 1700 + Math.random() * 500;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.acos(2 * Math.random() - 1);
+
+                const sx = r * Math.sin(phi) * Math.cos(theta);
+                const sy = r * Math.sin(phi) * Math.sin(theta);
+                const sz = r * Math.cos(phi);
+
+                bgPositions[i * 3] = sx;
+                bgPositions[i * 3 + 1] = sy;
+                bgPositions[i * 3 + 2] = sz;
+
+                const tint = Math.random();
+                const brightness = 0.4 + Math.pow(Math.random(), 1.6) * 0.6;
+                if (tint > 0.8) {
+                    bgColors[i * 3] = 0.72 * brightness; bgColors[i * 3 + 1] = 0.88 * brightness; bgColors[i * 3 + 2] = 1.0 * brightness;
+                } else if (tint > 0.6) {
+                    bgColors[i * 3] = 1.0 * brightness; bgColors[i * 3 + 1] = 0.90 * brightness; bgColors[i * 3 + 2] = 0.72 * brightness;
+                } else {
+                    bgColors[i * 3] = 0.95 * brightness; bgColors[i * 3 + 1] = 0.95 * brightness; bgColors[i * 3 + 2] = 0.98 * brightness;
+                }
+
+                bgSizes[i] = (1.3 + Math.pow(Math.random(), 3.2) * 3.0) * dpr;
+
+                if (i % 3 === 0) {
+                    const worldDir = new THREE.Vector3(sx, sy, sz).normalize().applyEuler(galaxyGroup.rotation);
+                    starfieldPoints.push({ dir: worldDir, cssColor: 'rgba(241, 245, 249, 0.8)', size: 1.5 });
+                }
+            }
+
+            const bgGeo = new THREE.BufferGeometry();
+            bgGeo.setAttribute('position', new THREE.BufferAttribute(bgPositions, 3));
+            bgGeo.setAttribute('color', new THREE.BufferAttribute(bgColors, 3));
+            bgGeo.setAttribute('aSize', new THREE.BufferAttribute(bgSizes, 1));
+
+            galaxyGroup.add(new THREE.Points(bgGeo, createStarPointsShaderMaterial()));
+        }
+
+        function buildCelestialHierarchy() {
+            const labelsContainer = document.getElementById('labels-container');
+
+            CELESTIAL_DATA.forEach((data, idx) => {
+                // 1. Inclined Orbital Plane Group (attached to Sun or Parent Planet's positionNode)
+                const orbitPlaneGroup = new THREE.Group();
+                orbitPlaneGroup.rotation.z = THREE.MathUtils.degToRad(data.inclination || 0);
+
+                // For Uranus's moon Titania, tilt its orbital plane to match Uranus's 97.77° equator!
+                if (data.parentId === 'uranus') {
+                    orbitPlaneGroup.rotation.z = THREE.MathUtils.degToRad(97.77);
+                }
+
+                // 2. Position Node (moves along the circular/elliptical orbit)
+                const positionNode = new THREE.Group();
+                orbitPlaneGroup.add(positionNode);
+
+                // 3. Axial Tilt Group (tilts the North-South spin axis relative to orbit normal)
+                const tiltGroup = new THREE.Group();
+                tiltGroup.rotation.z = THREE.MathUtils.degToRad(data.axialTilt || 0);
+                positionNode.add(tiltGroup);
+
+                // 4. Textured Sphere Mesh (rotates around local Y axis inside tiltGroup)
+                const radius = visualSettings.exploreScale ? data.exploreRadius : data.trueRadius;
+                const sphereGeo = new THREE.SphereGeometry(1, 48, 48); // Base unit radius, scaled dynamically
+                const texture = createProceduralTexture(data);
+
+                let mat;
+                if (data.id === 'sun') {
+                    mat = new THREE.MeshBasicMaterial({ map: texture });
+                } else {
+                    mat = new THREE.MeshStandardMaterial({
+                        map: texture,
+                        roughness: 0.78,
+                        metalness: 0.05
+                    });
+                }
+
+                const mesh = new THREE.Mesh(sphereGeo, mat);
+                mesh.scale.setScalar(radius);
+                mesh.userData = { bodyId: data.id };
+                tiltGroup.add(mesh);
+
+                // Sun 3D Volumetric Corona Shells (Angle-Invariant, No Billboard Clipping)
+                if (data.id === 'sun') {
+                    const innerCorona = createSunCoronaMesh(1.22, 0xfef08a, 2.6, 0.55);
+                    const outerCorona = createSunCoronaMesh(1.65, 0xf97316, 4.0, 0.32);
+                    mesh.add(innerCorona);
+                    mesh.add(outerCorona);
+                }
+
+                // Planetary Rings (Saturn & Uranus)
+                let ringMesh = null;
+                if (data.hasRings) {
+                    const ringGeo = new THREE.RingGeometry(data.ringInner, data.ringOuter, 96);
+                    // Remap UVs radially so our 1D gradient texture wraps cleanly around the ring
+                    const pos = ringGeo.attributes.position;
+                    const uvs = ringGeo.attributes.uv;
+                    const v3 = new THREE.Vector3();
+                    for (let i = 0; i < pos.count; i++) {
+                        v3.fromBufferAttribute(pos, i);
+                        const u = (v3.length() - data.ringInner) / (data.ringOuter - data.ringInner);
+                        uvs.setXY(i, u, 0.5);
+                    }
+                    const ringMat = new THREE.MeshStandardMaterial({
+                        map: createRingTexture(data.id === 'saturn'),
+                        side: THREE.DoubleSide,
+                        transparent: true,
+                        roughness: 0.6
+                    });
+                    ringMesh = new THREE.Mesh(ringGeo, ringMat);
+                    ringMesh.rotation.x = Math.PI / 2;
+                    mesh.add(ringMesh);
+                }
+
+                // 5. Rotational Axis Pole Rod (Cyan) + Prime Meridian / Tidal Lock Arrow (Emerald Green)
+                const vectorsGroup = new THREE.Group();
+                mesh.add(vectorsGroup); // Child of mesh so it scales with planet radius and spins with mesh!
+
+                if (data.id !== 'sun') {
+                    // North-South Spin Axis Rod
+                    const axisGeo = new THREE.CylinderGeometry(0.025, 0.025, 3.1, 12);
+                    const axisMat = new THREE.MeshBasicMaterial({ color: 0x22d3ee, transparent: true, opacity: 0.75 });
+                    const axisRod = new THREE.Mesh(axisGeo, axisMat);
+                    vectorsGroup.add(axisRod);
+
+                    // North Pole Cone Tip
+                    const northCone = new THREE.Mesh(
+                        new THREE.ConeGeometry(0.08, 0.24, 12),
+                        new THREE.MeshBasicMaterial({ color: 0x22d3ee })
+                    );
+                    northCone.position.y = 1.58;
+                    vectorsGroup.add(northCone);
+
+                    // Prime Meridian / Sub-Planetary Vector Arrow pointing along +X (which corresponds to u=0.5 on our texture)
+                    const arrowColor = data.tidallyLocked ? 0x10b981 : 0xf59e0b;
+                    const arrowLen = data.tidallyLocked ? 2.4 : 1.65;
+                    const pmShaft = new THREE.Mesh(
+                        new THREE.CylinderGeometry(0.035, 0.035, arrowLen, 12),
+                        new THREE.MeshBasicMaterial({ color: arrowColor })
+                    );
+                    pmShaft.rotation.z = -Math.PI / 2;
+                    pmShaft.position.x = arrowLen / 2;
+                    vectorsGroup.add(pmShaft);
+
+                    const pmHead = new THREE.Mesh(
+                        new THREE.ConeGeometry(0.12, 0.32, 16),
+                        new THREE.MeshBasicMaterial({ color: arrowColor })
+                    );
+                    pmHead.rotation.z = -Math.PI / 2;
+                    pmHead.position.x = arrowLen + 0.12;
+                    vectorsGroup.add(pmHead);
+                }
+
+                // 6. Orbital Path Line & Parent Gravity Line (for moons & Mercury)
+                let orbitLine = null;
+                let gravityLine = null;
+                const dist = visualSettings.exploreScale ? data.exploreDist : data.trueDist;
+
+                if (dist > 0) {
+                    orbitLine = buildOrbitCircleLine(dist, data.color, !!data.parentId);
+                    orbitPlaneGroup.add(orbitLine);
+
+                    // Dashed Gold Line connecting a tidally locked moon (or Mercury) to its parent center
+                    if (data.tidallyLocked || data.id === 'mercury') {
+                        const lineGeo = new THREE.BufferGeometry().setFromPoints([
+                            new THREE.Vector3(0, 0, 0),
+                            new THREE.Vector3(-dist, 0, 0)
+                        ]);
+                        const lineMat = new THREE.LineDashedMaterial({
+                            color: 0xfbbf24,
+                            dashSize: 0.4,
+                            gapSize: 0.25,
+                            transparent: true,
+                            opacity: 0.65
+                        });
+                        gravityLine = new THREE.Line(lineGeo, lineMat);
+                        gravityLine.computeLineDistances();
+                        positionNode.add(gravityLine);
+                    }
+                }
+
+                // Attach to parent planet or central scene
+                if (data.parentId && bodyNodes[data.parentId]) {
+                    bodyNodes[data.parentId].positionNode.add(orbitPlaneGroup);
+                } else {
+                    scene.add(orbitPlaneGroup);
+                }
+
+                // 7. Create Floating 3D HTML Label
+                const labelEl = document.createElement('div');
+                labelEl.className = `celestial-label ${data.parentId ? 'moon-label' : ''}`;
+                labelEl.innerHTML = `<span style="color:${data.color}">${data.icon}</span> ${data.name}`;
+                labelEl.onclick = (e) => {
+                    e.stopPropagation();
+                    selectBody(data.id);
+                };
+                labelsContainer.appendChild(labelEl);
+
+                // Seed initial phase offset so planets aren't all aligned in a straight line at t=0
+                const initialPhase = data.tidallyLocked ? 0 : (idx * 1.15);
+
+                bodyNodes[data.id] = {
+                    data,
+                    orbitPlaneGroup,
+                    positionNode,
+                    tiltGroup,
+                    mesh,
+                    vectorsGroup,
+                    orbitLine,
+                    gravityLine,
+                    labelEl,
+                    initialPhase
+                };
+            });
+        }
+
+        function buildOrbitCircleLine(radius, hexColor, isMoon) {
+            const segments = isMoon ? 96 : 180;
+            const pts = [];
+            for (let i = 0; i <= segments; i++) {
+                const theta = (i / segments) * Math.PI * 2;
+                pts.push(new THREE.Vector3(Math.cos(theta) * radius, 0, Math.sin(theta) * radius));
+            }
+            const geo = new THREE.BufferGeometry().setFromPoints(pts);
+            const mat = new THREE.LineBasicMaterial({
+                color: hexColor || 0x38bdf8,
+                transparent: true,
+                opacity: isMoon ? 0.38 : 0.42
+            });
+            return new THREE.Line(geo, mat);
+        }
+
+        /***********************************************************************
+         * 4. ORBITAL & TIDAL LOCKING PHYSICS UPDATE LOOP
+         ***********************************************************************/
+        function updateCelestialKinematics(dtSeconds) {
+            if (isPlaying) {
+                simDays += dtSeconds * daysPerSecond * timeDirection;
+            }
+
+            // Update Simulation Clock Display
+            const currentSimDate = new Date(baseDate.getTime() + simDays * 86400000);
+            const isoStr = currentSimDate.toISOString().replace('T', ' ').substring(0, 16) + ' UTC';
+            document.getElementById('sim-date-display').textContent = isoStr;
+
+            // Update every celestial body's orbital position & axial rotation
+            Object.values(bodyNodes).forEach(node => {
+                const d = node.data;
+                const dist = visualSettings.exploreScale ? d.exploreDist : d.trueDist;
+                const radius = visualSettings.exploreScale ? d.exploreRadius : d.trueRadius;
+
+                // Smoothly interpolate scale radius
+                node.mesh.scale.lerp(new THREE.Vector3(radius, radius, radius), 0.12);
+
+                if (d.orbitalPeriod !== 0) {
+                    // Orbital angular velocity (counter-clockwise when viewed from +Y North Ecliptic Pole)
+                    const orbitsCompleted = simDays / d.orbitalPeriod;
+                    const orbitAngle = node.initialPhase + orbitsCompleted * Math.PI * 2;
+
+                    // Position in orbital plane (X = cos(theta), Z = -sin(theta) for right-handed CCW rotation around +Y)
+                    const px = Math.cos(orbitAngle) * dist;
+                    const pz = -Math.sin(orbitAngle) * dist;
+                    node.positionNode.position.set(px, 0, pz);
+
+                    // Update dashed gravity line pointing from moon back to parent origin (0,0,0 in orbitPlaneGroup)
+                    if (node.gravityLine) {
+                        const posAttr = node.gravityLine.geometry.attributes.position;
+                        posAttr.setXYZ(0, 0, 0, 0);
+                        posAttr.setXYZ(1, -px, 0, -pz);
+                        posAttr.needsUpdate = true;
+                        node.gravityLine.computeLineDistances();
+                    }
+
+                    // AXIAL ROTATION & TIDAL LOCKING LOGIC
+                    if (d.tidallyLocked) {
+                        // In a 1:1 tidally locked orbit, at orbitAngle = 0, the moon is at (+dist, 0, 0)
+                        // and its parent planet is at (0,0,0), which is in the -X direction (angle PI).
+                        // As the moon orbits by +orbitAngle around +Y, rotating by +orbitAngle + PI keeps
+                        // the +X Prime Meridian vector pointing directly at the parent planet at all times!
+                        let spinAngle = orbitAngle + Math.PI;
+
+                        // If user is experimenting with the Tidal Locking Lab modes on the selected moon:
+                        if (currentLabMode === 'tidal' && tidalExperimentMode === 'norotation') {
+                            spinAngle = Math.PI; // Fixed in space (does not rotate on axis -> shows all sides to parent!)
+                        } else if (currentLabMode === 'tidal' && tidalExperimentMode === 'fastspin') {
+                            spinAngle = (orbitsCompleted * 3.0) * Math.PI * 2 + Math.PI; // Spins 3x per orbit
+                        }
+
+                        node.mesh.rotation.y = spinAngle;
+                    } else {
+                        // Standard Planetary Sidereal Rotation (or Mercury's 3:2 Resonance)
+                        const rotationsCompleted = simDays / d.rotationPeriod;
+                        node.mesh.rotation.y = node.initialPhase + rotationsCompleted * Math.PI * 2 + Math.PI;
+                    }
+                } else {
+                    // Sun rotation
+                    node.mesh.rotation.y = (simDays / d.rotationPeriod) * Math.PI * 2;
+                }
+            });
+
+            // Update Tidal Locking / Spin-Orbit Live Telemetry Banner if visible
+            if (currentLabMode === 'tidal' || currentLabMode === 'mercury') {
+                const targetNode = bodyNodes[selectedBodyId] || bodyNodes['moon'];
+                const d = targetNode.data;
+                if (d.orbitalPeriod !== 0) {
+                    const orbits = Math.abs(simDays / d.orbitalPeriod);
+                    let rotations = Math.abs(simDays / d.rotationPeriod);
+                    let errorDeg = 0;
+
+                    if (d.tidallyLocked) {
+                        if (tidalExperimentMode === 'norotation') {
+                            rotations = 0;
+                            errorDeg = (orbits * 360) % 360;
+                        } else if (tidalExperimentMode === 'fastspin') {
+                            rotations = orbits * 3.0;
+                            errorDeg = ((rotations - orbits) * 360) % 360;
+                        } else {
+                            rotations = orbits;
+                            errorDeg = 0.0;
+                        }
+                    } else {
+                        errorDeg = ((rotations - orbits) * 360) % 360;
+                    }
+
+                    document.getElementById('telemetry-orbits').textContent = orbits.toFixed(2);
+                    document.getElementById('telemetry-rotations').textContent = rotations.toFixed(2);
+                    document.getElementById('telemetry-angle').textContent = `${Math.abs(errorDeg).toFixed(1)}°`;
+                }
+            }
+        }
+
+        /***********************************************************************
+         * 5. CAMERA TRACKING & 3D FLOATING LABELS PROJECTION
+         ***********************************************************************/
+        function updateCameraTracking() {
+            if (isOverviewMode) {
+                controls.target.lerp(new THREE.Vector3(0, 0, 0), 0.08);
+                controls.update();
+                return;
+            }
+
+            const targetNode = bodyNodes[selectedBodyId];
+            if (!targetNode) return;
+
+            const currentWorldPos = new THREE.Vector3();
+            targetNode.positionNode.getWorldPosition(currentWorldPos);
+
+            // Move camera by the exact delta that the tracked planet/moon moved this frame
+            const delta = currentWorldPos.clone().sub(previousTargetWorldPos);
+            camera.position.add(delta);
+            controls.target.copy(currentWorldPos);
+
+            // Smooth camera approach when switching targets
+            if (cameraTransitionAlpha < 1.0) {
+                cameraTransitionAlpha = Math.min(1.0, cameraTransitionAlpha + 0.045);
+                const desiredPos = currentWorldPos.clone().add(desiredCamOffset);
+                camera.position.lerp(desiredPos, cameraTransitionAlpha * 0.15);
+            }
+
+            previousTargetWorldPos.copy(currentWorldPos);
+            controls.update();
+        }
+
+        function updateFloatingLabels() {
+            const halfW = window.innerWidth / 2;
+            const halfH = window.innerHeight / 2;
+            const tempV = new THREE.Vector3();
+
+            Object.values(bodyNodes).forEach(node => {
+                if (!visualSettings.showLabels) {
+                    node.labelEl.style.display = 'none';
+                    return;
+                }
+
+                // Hide moon labels when zoomed far out unless the parent planet or moon itself is selected
+                const d = node.data;
+                if (d.parentId) {
+                    const camDist = camera.position.distanceTo(controls.target);
+                    const isRelated = (selectedBodyId === d.id || selectedBodyId === d.parentId);
+                    if (camDist > 55 && !isRelated) {
+                        node.labelEl.style.display = 'none';
+                        return;
+                    }
+                }
+
+                node.positionNode.getWorldPosition(tempV);
+                const r = visualSettings.exploreScale ? d.exploreRadius : d.trueRadius;
+                tempV.y += r * 1.25;
+
+                tempV.project(camera);
+
+                // Check if behind camera
+                if (tempV.z > 1.0) {
+                    node.labelEl.style.display = 'none';
+                    return;
+                }
+
+                const x = (tempV.x * halfW) + halfW;
+                const y = -(tempV.y * halfH) + halfH;
+
+                node.labelEl.style.display = 'block';
+                node.labelEl.style.left = `${x}px`;
+                node.labelEl.style.top = `${y}px`;
+            });
+        }
+
+        /***********************************************************************
+         * 6. UI CONTROLLERS, CONCEPT LAB MODES & SCALE SWITCHING
+         ***********************************************************************/
+        function buildNavigationBar() {
+            const navBar = document.getElementById('celestial-nav-bar');
+            navBar.innerHTML = '';
+
+            // Include Sun, all 8 Planets, and Featured Moons in bottom carousel
+            const featuredIds = ['sun', 'mercury', 'venus', 'earth', 'moon', 'mars', 'jupiter', 'io', 'europa', 'saturn', 'titan', 'uranus', 'neptune', 'triton'];
+
+            featuredIds.forEach(id => {
+                const node = bodyNodes[id];
+                if (!node) return;
+                const d = node.data;
+                const btn = document.createElement('button');
+                btn.id = `nav-btn-${d.id}`;
+                btn.onclick = () => selectBody(d.id);
+                btn.className = `glass-pill px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-medium flex items-center gap-1.5 shrink-0 ${d.parentId ? 'text-slate-300 border-dashed' : 'text-white font-semibold'}`;
+                btn.innerHTML = `<span style="color:${d.color}">${d.icon}</span><span>${d.name.split(' ')[0]}</span>`;
+                navBar.appendChild(btn);
+            });
+
+            // Also populate the Left Collapsible Celestial Hierarchy Sidebar
+            const treeContainer = document.getElementById('left-hierarchy-list');
+            if (treeContainer) {
+                treeContainer.innerHTML = '';
+                const primaryBodies = CELESTIAL_DATA.filter(b => !b.parentId);
+                primaryBodies.forEach(planet => {
+                    const groupDiv = document.createElement('div');
+                    groupDiv.className = 'space-y-1';
+
+                    const pBtn = document.createElement('button');
+                    pBtn.id = `tree-btn-${planet.id}`;
+                    pBtn.onclick = () => {
+                        selectBody(planet.id);
+                        if (window.innerWidth < 768) toggleLeftDrawer(false);
+                    };
+                    pBtn.className = 'w-full glass-pill px-2.5 py-1.5 rounded-xl flex items-center justify-between text-left font-semibold text-white';
+                    pBtn.innerHTML = `
+                        <span class="flex items-center gap-2 truncate">
+                            <span style="color:${planet.color}" class="text-sm w-4 text-center">${planet.icon}</span>
+                            <span class="truncate">${planet.name}</span>
+                        </span>
+                        <span class="text-[10px] text-slate-400 font-mono-code">${planet.distanceLabel.split(' ')[0]}</span>
+                    `;
+                    groupDiv.appendChild(pBtn);
+
+                    // Children moons
+                    const moons = CELESTIAL_DATA.filter(m => m.parentId === planet.id);
+                    if (moons.length > 0) {
+                        const mWrap = document.createElement('div');
+                        mWrap.className = 'pl-5 space-y-1 border-l border-slate-800 ml-3';
+                        moons.forEach(moon => {
+                            const mBtn = document.createElement('button');
+                            mBtn.id = `tree-btn-${moon.id}`;
+                            mBtn.onclick = () => {
+                                selectBody(moon.id);
+                                if (window.innerWidth < 768) toggleLeftDrawer(false);
+                            };
+                            mBtn.className = 'w-full glass-pill px-2 py-1 rounded-lg flex items-center justify-between text-left text-[11px] text-slate-300';
+                            mBtn.innerHTML = `
+                                <span class="flex items-center gap-1.5 truncate">
+                                    <span style="color:${moon.color}">${moon.icon}</span>
+                                    <span class="truncate">${moon.name}</span>
+                                </span>
+                                <span class="text-[9px] px-1 rounded bg-emerald-500/15 text-emerald-300">1:1 Lock</span>
+                            `;
+                            mWrap.appendChild(mBtn);
+                        });
+                        groupDiv.appendChild(mWrap);
+                    }
+                    treeContainer.appendChild(groupDiv);
+                });
+            }
+        }
+
+        function selectBody(bodyId, autoOpenInspectorOnDesktop = false) {
+            const node = bodyNodes[bodyId];
+            if (!node) return;
+
+            isOverviewMode = false;
+            selectedBodyId = bodyId;
+            const d = node.data;
+
+            // Highlight active pill in bottom bar and left tree
+            document.querySelectorAll('#celestial-nav-bar button, #nav-btn-overview, #left-hierarchy-list button').forEach(b => b.classList.remove('active'));
+            const activeBtn = document.getElementById(`nav-btn-${bodyId}`);
+            if (activeBtn) {
+                activeBtn.classList.add('active');
+                activeBtn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+            }
+            const activeTreeBtn = document.getElementById(`tree-btn-${bodyId}`);
+            if (activeTreeBtn) activeTreeBtn.classList.add('active');
+
+            if (autoOpenInspectorOnDesktop && window.innerWidth >= 1024 && !isRightDrawerOpen) {
+                toggleInfoPanel(true);
+            }
+
+            // Compute ideal camera offset so both the body and its parent/moons are framed nicely
+            node.positionNode.getWorldPosition(previousTargetWorldPos);
+            const r = visualSettings.exploreScale ? d.exploreRadius : d.trueRadius;
+            const isPortrait = window.innerHeight > window.innerWidth;
+            const portraitScale = isPortrait ? 1.35 : 1.0;
+
+            if (d.parentId) {
+                desiredCamOffset.set(r * 5.5 * portraitScale, r * 6.5 * portraitScale, r * 7.5 * portraitScale);
+            } else if (d.id === 'sun') {
+                desiredCamOffset.set(0, 32 * portraitScale, 58 * portraitScale);
+            } else {
+                desiredCamOffset.set(r * 4.2 * portraitScale, r * 2.8 * portraitScale, r * 5.2 * portraitScale);
+            }
+            cameraTransitionAlpha = 0.0;
+
+            // Populate Right-Side Educational Info Panel
+            document.getElementById('info-badge-icon').textContent = d.icon;
+            document.getElementById('info-badge-icon').style.color = d.color;
+            document.getElementById('info-name').textContent = d.name;
+            document.getElementById('info-type').textContent = d.type;
+            document.getElementById('info-subtitle').textContent = d.subtitle;
+
+            document.getElementById('info-lock-badge').textContent = d.tidallyLocked
+                ? '1:1 Tidally Locked'
+                : (d.spinOrbitRatio || (d.rotationPeriod < 0 ? 'Retrograde Spin' : 'Prograde Spin'));
+            document.getElementById('info-lock-badge').className = `text-[10px] px-2 py-0.5 rounded font-semibold ${
+                d.tidallyLocked ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30' : 'bg-sky-500/20 text-sky-300 border border-sky-400/30'
+            }`;
+
+            document.getElementById('info-resonance-text').textContent = d.resonance;
+            document.getElementById('stat-orbit').textContent = d.orbitalPeriod === 0 ? 'N/A' : `${Math.abs(d.orbitalPeriod).toFixed(2)} d`;
+
+            const rotDays = Math.abs(d.rotationPeriod);
+            const rotStr = rotDays < 2
+                ? `${(rotDays * 24).toFixed(1)} hrs${d.rotationPeriod < 0 ? ' (R)' : ''}`
+                : `${rotDays.toFixed(2)} d${d.rotationPeriod < 0 ? ' (R)' : ''}`;
+            document.getElementById('stat-rotation').textContent = rotStr;
+            document.getElementById('stat-tilt').textContent = `${d.axialTilt}°`;
+            document.getElementById('stat-distance').textContent = d.distanceLabel;
+            document.getElementById('info-description').textContent = d.description;
+
+            // Populate Related Moons or Parent Planet buttons
+            const moonsList = document.getElementById('info-moons-list');
+            moonsList.innerHTML = '';
+
+            if (d.parentId && bodyNodes[d.parentId]) {
+                const parent = bodyNodes[d.parentId].data;
+                const pBtn = document.createElement('button');
+                pBtn.onclick = () => selectBody(parent.id);
+                pBtn.className = 'glass-pill px-2.5 py-1 rounded-lg text-xs text-sky-300 flex items-center gap-1.5';
+                pBtn.innerHTML = `<i class="fa-solid fa-arrow-turn-up"></i> Parent: <strong>${parent.name}</strong>`;
+                moonsList.appendChild(pBtn);
+            }
+
+            // Find children moons
+            const children = CELESTIAL_DATA.filter(item => item.parentId === d.id);
+            if (children.length > 0) {
+                children.forEach(moon => {
+                    const mBtn = document.createElement('button');
+                    mBtn.onclick = () => selectBody(moon.id);
+                    mBtn.className = 'glass-pill px-2.5 py-1 rounded-lg text-xs text-emerald-300 flex items-center gap-1.5';
+                    mBtn.innerHTML = `<span>${moon.icon}</span> <span>${moon.name}</span> <span class="text-[9px] text-emerald-400/80">(Locked)</span>`;
+                    moonsList.appendChild(mBtn);
+                });
+            } else if (!d.parentId) {
+                const noneSpan = document.createElement('span');
+                noneSpan.className = 'text-slate-500 text-xs italic';
+                noneSpan.textContent = 'No major moons in simulation';
+                moonsList.appendChild(noneSpan);
+            }
+        }
+
+        function resetCameraToSystem() {
+            isOverviewMode = true;
+            document.querySelectorAll('#celestial-nav-bar button, #left-hierarchy-list button').forEach(b => b.classList.remove('active'));
+            document.getElementById('nav-btn-overview').classList.add('active');
+            const isPortrait = window.innerHeight > window.innerWidth;
+            camera.position.set(0, isPortrait ? 125 : 95, isPortrait ? 225 : 175);
+        }
+
+        // Interactive Concept Lab Modes
+        function setLabMode(mode) {
+            currentLabMode = mode;
+            ['free', 'tidal', 'mercury', 'tilt', 'kepler'].forEach(m => {
+                const btn = document.getElementById(`mode-btn-${m}`);
+                if (btn) btn.classList.toggle('active', m === mode);
+            });
+
+            const banner = document.getElementById('tidal-lab-banner');
+            const expControls = document.getElementById('tidal-experiment-controls');
+
+            if (mode === 'tidal') {
+                banner.classList.remove('hidden');
+                expControls.classList.remove('hidden');
+                document.getElementById('lab-banner-title').textContent = 'Synchronous Rotation (Tidal Locking)';
+                document.getElementById('lab-banner-desc').innerHTML =
+                    'Watch the <strong class="text-emerald-400">Green Prime Meridian Vector</strong> on the Moon. Because its rotational period (27.32d) equals its orbital period (27.32d), the arrow <strong>always points directly at Earth</strong>. Switch between <em>1:1 Locked</em> and <em>Zero Spin</em> below to see why a non-rotating moon would reveal its far side!';
+                if (!visualSettings.showVectors) toggleVisualSetting('vectors');
+                toggleInfoPanel(true);
+                selectBody('moon');
+                setTimeWarpDaysPerSec(3.5, '3.5 Days/s (Lab)');
+            } else if (mode === 'mercury') {
+                banner.classList.remove('hidden');
+                expControls.classList.add('hidden');
+                document.getElementById('lab-banner-title').textContent = 'Mercury’s 3:2 Spin-Orbit Resonance';
+                document.getElementById('lab-banner-desc').innerHTML =
+                    'Unlike the Moon’s 1:1 lock, Mercury rotates <strong>3 times on its axis (58.65d)</strong> for every <strong>2 orbits around the Sun (87.97d)</strong>. Watch the telemetry counter below as Orbits reach 2.00 and Rotations reach 3.00!';
+                if (!visualSettings.showVectors) toggleVisualSetting('vectors');
+                toggleInfoPanel(true);
+                selectBody('mercury');
+                setTimeWarpDaysPerSec(12, '12 Days/s (3:2)');
+            } else if (mode === 'tilt') {
+                banner.classList.add('hidden');
+                if (!visualSettings.showVectors) toggleVisualSetting('vectors');
+                selectBody('uranus');
+                setTimeWarpDaysPerSec(0.5, '12 Hours/s');
+            } else if (mode === 'kepler') {
+                banner.classList.add('hidden');
+                resetCameraToSystem();
+                setTimeWarpDaysPerSec(30, '1 Month/s');
+            } else {
+                banner.classList.add('hidden');
+                tidalExperimentMode = 'locked';
+            }
+        }
+
+        function setTidalExperiment(expMode) {
+            tidalExperimentMode = expMode;
+            ['locked', 'norotation', 'fastspin'].forEach(m => {
+                document.getElementById(`exp-btn-${m}`).classList.toggle('active', m === expMode);
+            });
+        }
+
+        function toggleVisualSetting(setting) {
+            if (setting === 'scale') {
+                visualSettings.exploreScale = !visualSettings.exploreScale;
+                document.getElementById('scale-label').textContent = visualSettings.exploreScale
+                    ? 'Scale: Explore'
+                    : 'Scale: Proportional';
+                document.getElementById('toggle-scale-btn').classList.toggle('active', !visualSettings.exploreScale);
+
+                // Rebuild orbit circle lines to match new orbital radii
+                Object.values(bodyNodes).forEach(node => {
+                    if (node.orbitLine) {
+                        node.orbitPlaneGroup.remove(node.orbitLine);
+                        node.orbitLine.geometry.dispose();
+                        const newDist = visualSettings.exploreScale ? node.data.exploreDist : node.data.trueDist;
+                        node.orbitLine = buildOrbitCircleLine(newDist, node.data.color, !!node.data.parentId);
+                        node.orbitLine.visible = visualSettings.showOrbits;
+                        node.orbitPlaneGroup.add(node.orbitLine);
+                    }
+                });
+                selectBody(selectedBodyId);
+            } else if (setting === 'orbits') {
+                visualSettings.showOrbits = !visualSettings.showOrbits;
+                document.getElementById('toggle-orbits-btn').classList.toggle('active', visualSettings.showOrbits);
+                Object.values(bodyNodes).forEach(n => {
+                    if (n.orbitLine) n.orbitLine.visible = visualSettings.showOrbits;
+                });
+            } else if (setting === 'vectors') {
+                visualSettings.showVectors = !visualSettings.showVectors;
+                document.getElementById('toggle-vectors-btn').classList.toggle('active', visualSettings.showVectors);
+                Object.values(bodyNodes).forEach(n => {
+                    if (n.vectorsGroup) n.vectorsGroup.visible = visualSettings.showVectors;
+                    if (n.gravityLine) n.gravityLine.visible = visualSettings.showVectors;
+                });
+            } else if (setting === 'labels') {
+                visualSettings.showLabels = !visualSettings.showLabels;
+                document.getElementById('toggle-labels-btn').classList.toggle('active', visualSettings.showLabels);
+            }
+        }
+
+        // Time Controls
+        function togglePlayPause() {
+            isPlaying = !isPlaying;
+            const icon = document.getElementById('play-pause-icon');
+            icon.className = isPlaying ? 'fa-solid fa-pause text-base' : 'fa-solid fa-play text-base';
+        }
+
+        function reverseTimeDirection() {
+            timeDirection *= -1;
+            const btn = document.getElementById('btn-reverse');
+            btn.classList.toggle('active', timeDirection < 0);
+            updateSpeedReadoutText();
+        }
+
+        function onSpeedSliderInput(val) {
+            const num = parseFloat(val);
+            daysPerSecond = Math.pow(10, num);
+            updateSpeedReadoutText();
+        }
+
+        function setTimeWarpDaysPerSec(days, customLabel) {
+            daysPerSecond = days;
+            document.getElementById('speed-slider').value = Math.log10(Math.max(0.01, days));
+            if (customLabel) {
+                const dirPrefix = timeDirection < 0 ? '⏪ -' : '';
+                document.getElementById('speed-readout').textContent = `${dirPrefix}${customLabel}`;
+            } else {
+                updateSpeedReadoutText();
+            }
+        }
+
+        function updateSpeedReadoutText() {
+            const dirPrefix = timeDirection < 0 ? '⏪ -' : '';
+            let label = '';
+            if (daysPerSecond < 0.04) {
+                label = `${(daysPerSecond * 1440).toFixed(1)} Mins / sec`;
+            } else if (daysPerSecond < 1) {
+                label = `${(daysPerSecond * 24).toFixed(1)} Hours / sec`;
+            } else if (daysPerSecond < 300) {
+                label = `${daysPerSecond.toFixed(1)} Days / sec`;
+            } else {
+                label = `${(daysPerSecond / 365.25).toFixed(2)} Years / sec`;
+            }
+            document.getElementById('speed-readout').textContent = `${dirPrefix}${label}`;
+        }
+
+        // Responsive Drawer & Zen Mode Controllers
+        function syncDrawerUI() {
+            const leftDrawer = document.getElementById('left-drawer');
+            const rightDrawer = document.getElementById('info-panel');
+            const openLeftBtn = document.getElementById('open-left-btn');
+            const openRightBtn = document.getElementById('open-info-btn');
+            const topNavBtn = document.getElementById('top-nav-drawer-btn');
+            const topInfoBtn = document.getElementById('top-info-drawer-btn');
+
+            if (isLeftDrawerOpen) {
+                leftDrawer.classList.remove('-translate-x-[115%]');
+                openLeftBtn.classList.add('hidden');
+                if (topNavBtn) topNavBtn.classList.add('active');
+            } else {
+                leftDrawer.classList.add('-translate-x-[115%]');
+                openLeftBtn.classList.remove('hidden');
+                if (topNavBtn) topNavBtn.classList.remove('active');
+            }
+
+            if (isRightDrawerOpen) {
+                rightDrawer.classList.remove('translate-x-[115%]');
+                openRightBtn.classList.add('hidden');
+                if (topInfoBtn) topInfoBtn.classList.add('active');
+            } else {
+                rightDrawer.classList.add('translate-x-[115%]');
+                openRightBtn.classList.remove('hidden');
+                if (topInfoBtn) topInfoBtn.classList.remove('active');
+            }
+        }
+
+        function toggleLeftDrawer(forceState) {
+            isLeftDrawerOpen = typeof forceState === 'boolean' ? forceState : !isLeftDrawerOpen;
+            // On narrow screens (< 1024px), prevent left and right drawers from overlapping
+            if (isLeftDrawerOpen && window.innerWidth < 1024) {
+                isRightDrawerOpen = false;
+            }
+            syncDrawerUI();
+        }
+
+        function toggleInfoPanel(forceState) {
+            isRightDrawerOpen = typeof forceState === 'boolean' ? forceState : !isRightDrawerOpen;
+            // On narrow screens (< 1024px), prevent left and right drawers from overlapping
+            if (isRightDrawerOpen && window.innerWidth < 1024) {
+                isLeftDrawerOpen = false;
+            }
+            syncDrawerUI();
+        }
+
+        function toggleZenMode() {
+            document.body.classList.toggle('zen-mode');
+            const isZen = document.body.classList.contains('zen-mode');
+            document.getElementById('zen-exit-btn').classList.toggle('hidden', !isZen);
+        }
+
+        // Raycasting so clicking a 3D planet focuses it
+        function setupPointerSelection() {
+            const raycaster = new THREE.Raycaster();
+            const mouse = new THREE.Vector2();
+            let downPos = { x: 0, y: 0 };
+
+            renderer.domElement.addEventListener('pointerdown', (e) => {
+                downPos = { x: e.clientX, y: e.clientY };
+            });
+
+            renderer.domElement.addEventListener('pointerup', (e) => {
+                const moveDist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+                if (moveDist > 6) return; // Ignore drag gestures
+
+                mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+                const meshes = Object.values(bodyNodes).map(n => n.mesh);
+                const hits = raycaster.intersectObjects(meshes, false);
+                if (hits.length > 0 && hits[0].object.userData.bodyId) {
+                    selectBody(hits[0].object.userData.bodyId);
+                }
+            });
+        }
+
+        function onWindowResize() {
+            const width = window.visualViewport ? window.visualViewport.width : window.innerWidth;
+            const height = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+
+            camera.aspect = width / height;
+            // Widen FOV slightly on portrait screens so orbits and planet-moon pairs fit horizontally
+            camera.fov = height > width ? 58 : 48;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height);
+
+            // Ensure both drawers aren't simultaneously open if resized down to mobile/tablet width
+            if (width < 1024 && isLeftDrawerOpen && isRightDrawerOpen) {
+                isLeftDrawerOpen = false;
+                syncDrawerUI();
+            }
+        }
+
+        /***********************************************************************
+         * 7. MAIN ANIMATION LOOP
+         ***********************************************************************/
+        let lastFrameTime = performance.now();
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+            const dtSeconds = Math.min((now - lastFrameTime) / 1000, 0.1);
+            lastFrameTime = now;
+
+            updateCelestialKinematics(dtSeconds);
+            updateCameraTracking();
+
+            // Keep the Milky Way SkyDome centered on the camera so it acts as a true infinite skybox
+            if (galaxyGroupRef) {
+                galaxyGroupRef.position.copy(camera.position);
+            }
+
+            updateFloatingLabels();
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = function () {
+            initSolarSystem();
+            animate(performance.now());
+        };
+    </script>
+</body>
+</html>
