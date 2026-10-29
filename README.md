@@ -2,8 +2,8 @@
 
 An interactive 3D solar system and astrophysics lab built with Three.js, running entirely in the browser from a single HTML file.
 
-**Live demo:** https://manojknaikade.github.io/3d-solar-system-tidal-locking/3d_solar_system_tidal_locking_simulator.html
+**Live demo:** https://manojknaikade.github.io/3d-solar-system-tidal-locking
 
 ## Run locally
 
-Open `3d_solar_system_tidal_locking_simulator.html` in a modern browser (internet connection needed for the CDN-hosted Three.js, Tailwind, and fonts).
+Open `index.html` in a modern browser (internet connection needed for the CDN-hosted Three.js, Tailwind, and fonts).

@@ -1665,10 +1665,13 @@
 
                     // 3D value noise for organic cosmic clouds & dust rifts
                     float hash(vec3 p) {
-                        p = fract(p * 0.3183099 + 0.1);
-                        p *= 17.0;
-                        return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+                        p = fract(p * 0.1031);
+                        p += dot(p, p.zyx + 31.32);
+                        return fract((p.x + p.y) * p.z);
                     }
+
+                    // Rotate between octaves so the lattice never lines up into visible streaks
+                    const mat3 octRot = mat3(0.00, 0.80, 0.60, -0.80, 0.36, -0.48, -0.60, -0.48, 0.64);
 
                     float noise(vec3 x) {
                         vec3 i = floor(x);
@@ -1688,55 +1691,92 @@
                         float a = 0.5;
                         for (int i = 0; i < 5; i++) {
                             v += a * noise(p);
-                            p = p * 2.03 + vec3(13.7, 29.1, 7.3);
+                            p = octRot * p * 2.03 + vec3(13.7, 29.1, 7.3);
                             a *= 0.5;
                         }
                         return v;
                     }
 
+                    // Ridged noise for thin, filamentary dust lanes
+                    float ridged(vec3 p) {
+                        float v = 0.0;
+                        float a = 0.5;
+                        for (int i = 0; i < 5; i++) {
+                            float n = 1.0 - abs(noise(p) * 2.0 - 1.0);
+                            v += a * n * n;
+                            p = octRot * p * 2.07 + vec3(5.3, 11.9, 3.1);
+                            a *= 0.5;
+                        }
+                        return v;
+                    }
+
+                    // Unit vector from galactic longitude/latitude (radians); core at l = 0 (+X)
+                    vec3 galDir(float l, float b) {
+                        return vec3(cos(b) * cos(l), sin(b), cos(b) * sin(l));
+                    }
+
                     void main() {
                         vec3 d = normalize(vDir);
 
-                        // Warp galactic equator slightly with low-frequency 3D noise
-                        float warp = (fbm(d * 2.2) - 0.5) * 0.16;
-                        float lat = abs(d.y + warp);
+                        // Galactic coordinates: l = 0 toward Sagittarius (+X), b = 0 on the plane
+                        float l = atan(d.z, d.x);
+                        float al = abs(l);
+                        float b = asin(clamp(d.y, -1.0, 1.0));
+                        float bw = b + (fbm(d * 1.6) - 0.5) * 0.05;
 
-                        // Smooth Galactic Plane envelope
-                        float band = exp(-lat * 6.5);
-                        float wideGlow = exp(-lat * 2.4);
+                        // Disc: bright and thick toward the core, faint and thin toward the anticenter
+                        float coreness = exp(-al * al / 0.5);
+                        float diskLum = 0.22 + 0.78 * exp(-al * al / 1.1);
+                        float h = mix(0.055, 0.13, coreness);
+                        float disk = diskLum * exp(-abs(bw) / h);
+                        float halo = diskLum * exp(-abs(bw) / (h * 4.0)) * 0.18;
 
-                        // Sagittarius Galactic Core concentration around +X direction
-                        float coreProximity = max(0.0, d.x);
-                        float coreBulge = pow(coreProximity, 2.8) * exp(-lat * 4.2);
+                        // Boxy bulge around Sagittarius
+                        float bulge = exp(-(l * l) / (2.0 * 0.21 * 0.21) - (bw * bw) / (2.0 * 0.14 * 0.14));
 
-                        // Multi-scale organic star-cloud billow noise
-                        float n1 = fbm(d * 4.5);
-                        float n2 = fbm(d * 11.0 - vec3(2.4, 5.1, 1.8));
-                        float clouds = smoothstep(0.22, 0.82, n1 * 0.65 + n2 * 0.35);
+                        // Mottled star clouds (Scutum, Sagittarius...) and unresolved-starlight grain
+                        float sc = fbm(d * 7.0 + vec3(3.1, 1.7, 4.2));
+                        float grain = fbm(d * 42.0);
+                        float clouds = (0.45 + 1.1 * smoothstep(0.38, 0.72, sc)) * (0.7 + 0.6 * grain);
+                        float light = disk * clouds + halo + bulge * (0.7 + 0.6 * sc) * (0.75 + 0.5 * grain);
 
-                        // Great Rift dark interstellar dust lanes running through the center of the band
-                        float riftLat = abs(d.y + (n1 - 0.5) * 0.11);
-                        float dustLane = smoothstep(0.36, 0.72, n2) * exp(-riftLat * 18.0);
+                        // Great Rift: a wavy dark lane splitting the band from the core toward Cygnus
+                        float rf = ridged(d * 5.5 + vec3(7.0, 2.0, 5.0));
+                        float riftMid = (fbm(d * 3.0 + vec3(1.3, 8.2, 2.9)) - 0.5) * 0.09;
+                        float riftSpan = smoothstep(-0.35, 0.05, l) * (1.0 - smoothstep(1.3, 1.9, l));
+                        float riftWidth = mix(0.02, 0.05, riftSpan);
+                        float rift = exp(-pow((bw - riftMid) / riftWidth, 2.0));
+                        float tau = rift * (0.25 + 0.75 * riftSpan) * (0.4 + 1.2 * rf) * 1.3;
 
-                        // Deep space background gradient
-                        vec3 col = mix(vec3(0.008, 0.014, 0.035), vec3(0.02, 0.04, 0.09), wideGlow);
+                        // Patchy filamentary dust throughout the disc
+                        tau += exp(-abs(bw) / (h * 1.2)) * smoothstep(0.55, 0.9, rf) * 0.7;
 
-                        // Outer sapphire/indigo galactic halo
-                        vec3 outerArmCol = vec3(0.09, 0.20, 0.42);
-                        // Inner silver-blue star cloud spine
-                        vec3 innerSpineCol = vec3(0.32, 0.46, 0.72);
-                        // Warm golden-amber Galactic Core glow
-                        vec3 coreCol = vec3(0.78, 0.54, 0.32);
-                        // Subtle magenta/rose H-II nebula knots
-                        vec3 nebulaTint = vec3(0.45, 0.18, 0.42);
+                        // Rho Ophiuchi dark streamers reaching up from the core
+                        float oph = exp(-pow((l + 0.10) / 0.16, 2.0) - pow((bw - 0.19) / 0.11, 2.0));
+                        tau += oph * smoothstep(0.5, 0.85, ridged(d * 9.0 + vec3(2.2, 0.4, 6.6))) * 0.9;
 
-                        col += outerArmCol * wideGlow * clouds * 0.38;
-                        col += innerSpineCol * band * clouds * 0.45;
-                        col += nebulaTint * band * smoothstep(0.55, 0.85, n2) * 0.22;
-                        col += coreCol * coreBulge * (0.45 + 0.55 * clouds) * 0.65;
+                        // Starlight warms from neutral disc to golden-white bulge
+                        vec3 diskCol = vec3(0.84, 0.87, 0.95);
+                        vec3 coreCol = vec3(1.0, 0.86, 0.68);
+                        vec3 starCol = mix(diskCol, coreCol, clamp(coreness * 0.7 + bulge * 0.6, 0.0, 1.0));
+                        vec3 col = starCol * light * 0.48;
 
-                        // Carve dark interstellar dust lanes (Great Rift)
-                        col *= (1.0 - dustLane * 0.72);
+                        // Dust extinction reddens what it doesn't block
+                        col *= exp(-tau * vec3(0.8, 1.0, 1.3));
+
+                        // Sparse H-alpha emission nebulae hugging the plane
+                        float em = smoothstep(0.68, 0.85, fbm(d * 14.0 + vec3(9.1, 4.4, 0.7)));
+                        col += vec3(0.80, 0.20, 0.28) * em * exp(-abs(bw) / 0.04) * diskLum * 0.10;
+
+                        // Large & Small Magellanic Clouds below the southern plane
+                        float lmc = exp(-pow(length(d - galDir(-1.388, -0.574)) / 0.07, 2.0));
+                        float smc = exp(-pow(length(d - galDir(-0.998, -0.773)) / 0.04, 2.0));
+                        float mcTex = 0.6 + 0.8 * fbm(d * 24.0);
+                        col += vec3(0.78, 0.80, 0.90) * (lmc * 0.16 + smc * 0.10) * mcTex;
+
+                        // Near-black sky plus a hair of dither to stop gradient banding
+                        col += vec3(0.004, 0.005, 0.009);
+                        col += (hash(d * 913.0) - 0.5) / 255.0;
 
                         gl_FragColor = vec4(col, 1.0);
                     }
@@ -1811,26 +1851,30 @@
                     dir: worldDir,
                     radiusFactor: 0.16 + coreProximity * 0.16,
                     innerColor: isCore
-                        ? `rgba(251, 191, 36, ${0.07 + coreProximity * 0.10})`
-                        : `rgba(56, 189, 248, ${0.05 + coreProximity * 0.05})`,
+                        ? `rgba(255, 220, 170, ${0.07 + coreProximity * 0.10})`
+                        : `rgba(214, 222, 240, ${0.04 + coreProximity * 0.05})`,
                     midColor: isCore
-                        ? `rgba(244, 114, 182, ${0.035 + coreProximity * 0.05})`
-                        : `rgba(129, 140, 248, ${0.025 + coreProximity * 0.03})`
+                        ? `rgba(200, 160, 120, ${0.035 + coreProximity * 0.05})`
+                        : `rgba(170, 178, 200, ${0.02 + coreProximity * 0.03})`
                 });
             }
 
             const dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-            // 2. Dense Milky Way Band Stars (4,500 fine circular pinpoint stars concentrated along the Galactic Plane)
-            const mwStarCount = 4500;
+            // 2. Dense Milky Way Band Stars (9,000 fine pinpoint stars hugging the Galactic Plane, crowded toward the core)
+            const mwStarCount = 9000;
             const mwPositions = new Float32Array(mwStarCount * 3);
             const mwColors = new Float32Array(mwStarCount * 3);
             const mwSizes = new Float32Array(mwStarCount);
+            const gauss = () => Math.random() + Math.random() + Math.random() - 1.5;
 
             for (let i = 0; i < mwStarCount; i++) {
                 const r = 1600 + Math.random() * 500;
-                const theta = Math.random() * Math.PI * 2;
-                const spread = (Math.random() + Math.random() + Math.random() - 1.5) * 0.22;
+                // Longitude: 45% crowd the Sagittarius bulge (+X), the rest spread along the disc
+                const inBulge = Math.random() < 0.45;
+                const theta = inBulge ? gauss() * 0.9 : Math.random() * Math.PI * 2;
+                const coreness = Math.exp(-Math.pow(Math.atan2(Math.sin(theta), Math.cos(theta)), 2) / 0.5);
+                const spread = gauss() * (0.07 + 0.12 * coreness);
                 const phi = Math.PI * 0.5 + spread;
 
                 const lx = r * Math.sin(phi) * Math.cos(theta);
@@ -1841,29 +1885,30 @@
                 mwPositions[i * 3 + 1] = ly;
                 mwPositions[i * 3 + 2] = lz;
 
+                // Realistic stellar colours: mostly white/pale-yellow, some orange giants, few blue-white
                 const tint = Math.random();
-                let cr = 0.92, cg = 0.95, cb = 1.0, cssColor = 'rgba(226, 232, 240, 0.72)';
-                if (tint > 0.80) {
-                    cr = 0.65; cg = 0.86; cb = 1.0;
-                    cssColor = 'rgba(147, 197, 253, 0.82)';
-                } else if (tint > 0.55) {
-                    cr = 1.0; cg = 0.88; cb = 0.68;
-                    cssColor = 'rgba(253, 224, 71, 0.78)';
-                } else if (tint > 0.42) {
-                    cr = 0.96; cg = 0.78; cb = 0.94;
-                    cssColor = 'rgba(244, 114, 182, 0.75)';
+                let cr = 0.95, cg = 0.95, cb = 0.97, cssColor = 'rgba(241, 245, 249, 0.72)';
+                if (tint > 0.88) {
+                    cr = 0.72; cg = 0.84; cb = 1.0;
+                    cssColor = 'rgba(191, 219, 254, 0.8)';
+                } else if (tint > 0.62) {
+                    cr = 1.0; cg = 0.90; cb = 0.74;
+                    cssColor = 'rgba(254, 240, 200, 0.75)';
+                } else if (tint > 0.48) {
+                    cr = 1.0; cg = 0.76; cb = 0.52;
+                    cssColor = 'rgba(253, 200, 140, 0.72)';
                 }
 
-                // Vary individual star brightness naturally
-                const brightness = 0.35 + Math.pow(Math.random(), 1.8) * 0.65;
+                // Most stars are faint; a handful stand out
+                const brightness = 0.25 + Math.pow(Math.random(), 2.4) * 0.75;
                 mwColors[i * 3] = cr * brightness;
                 mwColors[i * 3 + 1] = cg * brightness;
                 mwColors[i * 3 + 2] = cb * brightness;
 
-                // Fine pinpoint star sizes (mostly 1.2px to 2.8px, with a few brighter 3.8px stars)
-                mwSizes[i] = (1.1 + Math.pow(Math.random(), 3.0) * 2.6) * dpr;
+                // Fine pinpoint star sizes (mostly ~1px, rarely up to ~3.5px)
+                mwSizes[i] = (0.9 + Math.pow(Math.random(), 4.0) * 2.6) * dpr;
 
-                if (i % 3 === 0) {
+                if (i % 6 === 0) {
                     const worldDir = new THREE.Vector3(lx, ly, lz).normalize().applyEuler(galaxyGroup.rotation);
                     starfieldPoints.push({ dir: worldDir, cssColor, size: 1.3 + (tint > 0.88 ? 0.8 : 0) });
                 }
