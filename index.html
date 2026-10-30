@@ -2695,12 +2695,51 @@
                 pts.push(new THREE.Vector3(Math.cos(theta) * radius, 0, Math.sin(theta) * radius));
             }
             const geo = new THREE.BufferGeometry().setFromPoints(pts);
-            const mat = new THREE.LineBasicMaterial({
-                color: hexColor || 0x38bdf8,
+            const angles = new Float32Array(segments + 1);
+            for (let i = 0; i <= segments; i++) angles[i] = (i / segments) * Math.PI * 2;
+            geo.setAttribute('aAngle', new THREE.BufferAttribute(angles, 1));
+
+            // The line fades out in a small gap around the body (uBodyAngle ± uGap), like the reference
+            // renders where the orbit is never drawn across the planet's disk.
+            const mat = new THREE.ShaderMaterial({
+                uniforms: {
+                    uColor: { value: new THREE.Color(hexColor || 0x38bdf8) },
+                    uOpacity: { value: isMoon ? 0.38 : 0.42 },
+                    uBodyAngle: { value: 0 },
+                    uGap: { value: 0 }
+                },
+                vertexShader: `
+                    attribute float aAngle;
+                    varying float vAngle;
+                    void main() {
+                        vAngle = aAngle;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform vec3 uColor;
+                    uniform float uOpacity;
+                    uniform float uBodyAngle;
+                    uniform float uGap;
+                    varying float vAngle;
+                    const float PI = 3.14159265;
+                    void main() {
+                        float d = abs(mod(vAngle - uBodyAngle + PI, 2.0 * PI) - PI);
+                        float gapAlpha = uGap > 0.0 ? smoothstep(uGap, uGap * 1.5, d) : 1.0;
+                        gl_FragColor = vec4(uColor, uOpacity * gapAlpha);
+                        #include <tonemapping_fragment>
+                    }
+                `,
                 transparent: true,
-                opacity: isMoon ? 0.38 : 0.42
+                depthWrite: false
             });
             return new THREE.Line(geo, mat);
+        }
+
+        // Angular half-width of the empty gap around a body on its orbit: the body's radius (or its
+        // rings) plus a margin of about one radius, so the line and tail stop just short of the disk.
+        function orbitGapAngle(radius, dist, ringOuter) {
+            return Math.min(radius * (Math.max(1, ringOuter || 0) + 1.2) / dist, 0.6);
         }
 
         // Glowing comet-style tail that trails each body along its orbit.
@@ -2731,7 +2770,7 @@
                 vec2 dir = sNext - sPrev;
                 dir = length(dir) > 1e-6 ? normalize(dir) : vec2(1.0, 0.0);
                 vec2 normal = vec2(-dir.y, dir.x) / aspect;
-                float halfWidthPx = uWidth * (0.35 + 0.65 * aFade);
+                float halfWidthPx = uWidth * (0.3 + 0.7 * aFade);
                 clipCurr.xy += normal * aSide * halfWidthPx * 2.0 / uResolution.y * clipCurr.w;
                 gl_Position = clipCurr;
                 vFade = aFade;
@@ -2778,7 +2817,7 @@
                 uniforms: {
                     uResolution: orbitTrailUniforms.uResolution,
                     uColor: { value: new THREE.Color(hexColor || 0x38bdf8) },
-                    uWidth: { value: 1.5 } // half-width in px at the body: a touch wider than the 1px orbit line
+                    uWidth: { value: 1.75 } // half-width in px at the head, tapering toward the end
                 },
                 vertexShader: ORBIT_TRAIL_VERTEX_SHADER,
                 fragmentShader: ORBIT_TRAIL_FRAGMENT_SHADER,
@@ -2792,15 +2831,16 @@
             return mesh;
         }
 
-        function updateOrbitTrail(trail, orbitAngle, dist, trailSign) {
+        function updateOrbitTrail(trail, orbitAngle, dist, trailSign, gap) {
             const geo = trail.geometry;
             const pos = geo.attributes.position, prev = geo.attributes.aPrev, next = geo.attributes.aNext;
+            const start = orbitAngle - trailSign * gap; // tail begins behind the body, past the gap
             const step = trailSign * ORBIT_TRAIL_ARC / ORBIT_TRAIL_SEGMENTS;
             for (let i = 0; i <= ORBIT_TRAIL_SEGMENTS; i++) {
-                const a = orbitAngle - i * step;
+                const a = start - i * step;
                 const x = Math.cos(a) * dist, z = -Math.sin(a) * dist;
-                const ap = orbitAngle - Math.max(i - 1, 0) * step;
-                const an = orbitAngle - Math.min(i + 1, ORBIT_TRAIL_SEGMENTS) * step;
+                const ap = start - Math.max(i - 1, 0) * step;
+                const an = start - Math.min(i + 1, ORBIT_TRAIL_SEGMENTS) * step;
                 for (let k = 0; k < 2; k++) {
                     const v = i * 2 + k;
                     pos.setXYZ(v, x, 0, z);
@@ -2844,8 +2884,14 @@
                     node.positionNode.position.set(px, 0, pz);
 
                     // Tail points opposite to the direction of travel (retrograde orbits and reversed time flip it)
+                    const gap = orbitGapAngle(node.mesh.scale.x, dist, d.hasRings ? d.ringOuter : 0);
                     if (node.orbitTrail) {
-                        updateOrbitTrail(node.orbitTrail, orbitAngle, dist, Math.sign(d.orbitalPeriod) * timeDirection);
+                        updateOrbitTrail(node.orbitTrail, orbitAngle, dist, Math.sign(d.orbitalPeriod) * timeDirection, gap);
+                    }
+                    if (node.orbitLine) {
+                        // The circle line is drawn at (cos θ, sin θ) while bodies move at (cos a, -sin a), so θ = -a
+                        node.orbitLine.material.uniforms.uBodyAngle.value = -orbitAngle;
+                        node.orbitLine.material.uniforms.uGap.value = gap;
                     }
 
                     // Update dashed gravity line pointing from moon back to parent origin (0,0,0 in orbitPlaneGroup)
