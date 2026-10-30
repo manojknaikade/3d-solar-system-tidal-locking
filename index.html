@@ -2145,6 +2145,7 @@
             // Initial Selection
             selectBody('earth', false);
 
+            orbitTrailUniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
             window.addEventListener('resize', onWindowResize);
             if (window.visualViewport) {
                 window.visualViewport.addEventListener('resize', onWindowResize);
@@ -2607,12 +2608,16 @@
 
                 // 6. Orbital Path Line & Parent Gravity Line (for moons & Mercury)
                 let orbitLine = null;
+                let orbitTrail = null;
                 let gravityLine = null;
                 const dist = visualSettings.exploreScale ? data.exploreDist : data.trueDist;
 
                 if (dist > 0) {
                     orbitLine = buildOrbitCircleLine(dist, data.color, !!data.parentId);
                     orbitPlaneGroup.add(orbitLine);
+
+                    orbitTrail = buildOrbitTrail(data.color, !!data.parentId);
+                    orbitPlaneGroup.add(orbitTrail);
 
                     // Dashed Gold Line connecting a tidally locked moon (or Mercury) to its parent center
                     if (data.tidallyLocked || data.id === 'mercury') {
@@ -2661,6 +2666,7 @@
                     mesh,
                     vectorsGroup,
                     orbitLine,
+                    orbitTrail,
                     gravityLine,
                     labelEl,
                     initialPhase
@@ -2682,6 +2688,114 @@
                 opacity: isMoon ? 0.38 : 0.42
             });
             return new THREE.Line(geo, mat);
+        }
+
+        // Glowing comet-style tail that trails each body along its orbit.
+        // Drawn as a screen-space ribbon (WebGL ignores line width) that tapers and fades toward the end;
+        // additive blending means it needs no alpha sorting.
+        const ORBIT_TRAIL_SEGMENTS = 96;
+        const ORBIT_TRAIL_ARC = Math.PI * 0.4; // 72° of orbit behind the body
+        const orbitTrailUniforms = { uResolution: { value: new THREE.Vector2(1, 1) } };
+
+        const ORBIT_TRAIL_VERTEX_SHADER = `
+            attribute vec3 aPrev;
+            attribute vec3 aNext;
+            attribute float aSide;
+            attribute float aFade;
+            uniform vec2 uResolution;
+            uniform float uWidth;
+            varying float vFade;
+            varying float vSide;
+
+            void main() {
+                mat4 mvp = projectionMatrix * modelViewMatrix;
+                vec4 clipCurr = mvp * vec4(position, 1.0);
+                vec4 clipPrev = mvp * vec4(aPrev, 1.0);
+                vec4 clipNext = mvp * vec4(aNext, 1.0);
+                vec2 aspect = vec2(uResolution.x / uResolution.y, 1.0);
+                vec2 sPrev = clipPrev.xy / clipPrev.w * aspect;
+                vec2 sNext = clipNext.xy / clipNext.w * aspect;
+                vec2 dir = sNext - sPrev;
+                dir = length(dir) > 1e-6 ? normalize(dir) : vec2(1.0, 0.0);
+                vec2 normal = vec2(-dir.y, dir.x) / aspect;
+                float halfWidthPx = uWidth * (0.25 + 0.75 * aFade);
+                clipCurr.xy += normal * aSide * halfWidthPx * 2.0 / uResolution.y * clipCurr.w;
+                gl_Position = clipCurr;
+                vFade = aFade;
+                vSide = aSide;
+            }
+        `;
+
+        const ORBIT_TRAIL_FRAGMENT_SHADER = `
+            uniform vec3 uColor;
+            varying float vFade;
+            varying float vSide;
+
+            void main() {
+                float edge = 1.0 - vSide * vSide;           // soft glow across the ribbon
+                float core = smoothstep(0.55, 1.0, edge);   // hot white center
+                vec3 col = mix(uColor, vec3(1.0), core * 0.6 * vFade);
+                gl_FragColor = vec4(col * edge * pow(vFade, 1.4), 1.0);
+            }
+        `;
+
+        function buildOrbitTrail(hexColor, isMoon) {
+            const n = ORBIT_TRAIL_SEGMENTS + 1;
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
+            geo.setAttribute('aPrev', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
+            geo.setAttribute('aNext', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
+            const side = new Float32Array(n * 2);
+            const fade = new Float32Array(n * 2);
+            for (let i = 0; i < n; i++) {
+                const f = 1 - i / ORBIT_TRAIL_SEGMENTS; // 1 at the body, 0 at the tail end
+                side[i * 2] = 1; side[i * 2 + 1] = -1;
+                fade[i * 2] = f; fade[i * 2 + 1] = f;
+            }
+            geo.setAttribute('aSide', new THREE.BufferAttribute(side, 1));
+            geo.setAttribute('aFade', new THREE.BufferAttribute(fade, 1));
+            const index = [];
+            for (let i = 0; i < ORBIT_TRAIL_SEGMENTS; i++) {
+                const a = i * 2;
+                index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+            }
+            geo.setIndex(index);
+
+            const mat = new THREE.ShaderMaterial({
+                uniforms: {
+                    uResolution: orbitTrailUniforms.uResolution,
+                    uColor: { value: new THREE.Color(hexColor || 0x38bdf8) },
+                    uWidth: { value: isMoon ? 2.5 : 4.0 }
+                },
+                vertexShader: ORBIT_TRAIL_VERTEX_SHADER,
+                fragmentShader: ORBIT_TRAIL_FRAGMENT_SHADER,
+                transparent: true,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false,
+                side: THREE.DoubleSide
+            });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.frustumCulled = false; // positions are rewritten every frame
+            return mesh;
+        }
+
+        function updateOrbitTrail(trail, orbitAngle, dist, trailSign) {
+            const geo = trail.geometry;
+            const pos = geo.attributes.position, prev = geo.attributes.aPrev, next = geo.attributes.aNext;
+            const step = trailSign * ORBIT_TRAIL_ARC / ORBIT_TRAIL_SEGMENTS;
+            for (let i = 0; i <= ORBIT_TRAIL_SEGMENTS; i++) {
+                const a = orbitAngle - i * step;
+                const x = Math.cos(a) * dist, z = -Math.sin(a) * dist;
+                const ap = orbitAngle - Math.max(i - 1, 0) * step;
+                const an = orbitAngle - Math.min(i + 1, ORBIT_TRAIL_SEGMENTS) * step;
+                for (let k = 0; k < 2; k++) {
+                    const v = i * 2 + k;
+                    pos.setXYZ(v, x, 0, z);
+                    prev.setXYZ(v, Math.cos(ap) * dist, 0, -Math.sin(ap) * dist);
+                    next.setXYZ(v, Math.cos(an) * dist, 0, -Math.sin(an) * dist);
+                }
+            }
+            pos.needsUpdate = prev.needsUpdate = next.needsUpdate = true;
         }
 
         /***********************************************************************
@@ -2715,6 +2829,11 @@
                     const px = Math.cos(orbitAngle) * dist;
                     const pz = -Math.sin(orbitAngle) * dist;
                     node.positionNode.position.set(px, 0, pz);
+
+                    // Tail points opposite to the direction of travel (retrograde orbits and reversed time flip it)
+                    if (node.orbitTrail) {
+                        updateOrbitTrail(node.orbitTrail, orbitAngle, dist, Math.sign(d.orbitalPeriod) * timeDirection);
+                    }
 
                     // Update dashed gravity line pointing from moon back to parent origin (0,0,0 in orbitPlaneGroup)
                     if (node.gravityLine) {
@@ -3130,6 +3249,7 @@
                 document.getElementById('toggle-orbits-btn').classList.toggle('active', visualSettings.showOrbits);
                 Object.values(bodyNodes).forEach(n => {
                     if (n.orbitLine) n.orbitLine.visible = visualSettings.showOrbits;
+                    if (n.orbitTrail) n.orbitTrail.visible = visualSettings.showOrbits;
                 });
             } else if (setting === 'vectors') {
                 visualSettings.showVectors = !visualSettings.showVectors;
@@ -3528,6 +3648,7 @@
             camera.fov = height > width ? 58 : 48;
             camera.updateProjectionMatrix();
             renderer.setSize(width, height);
+            orbitTrailUniforms.uResolution.value.set(width, height);
 
             // Ensure both drawers aren't simultaneously open if resized down to mobile/tablet width
             if (width < 1024 && isLeftDrawerOpen && isRightDrawerOpen) {
