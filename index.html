@@ -563,6 +563,10 @@
                     <span><strong>Gold Line:</strong> Gravity Line to Parent Body</span>
                 </div>
             </div>
+
+            <p class="text-[10px] text-slate-500 px-1">
+                Planet &amp; Moon maps: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener" class="underline hover:text-slate-300">Solar System Scope</a> (CC BY 4.0)
+            </p>
         </div>
     </aside>
 
@@ -1276,29 +1280,109 @@
                 }
             }
 
-            // Draw a subtle Prime Meridian (0° Longitude) & Equator reference line on Tidally Locked moons & Mercury
-            if (bodyData.tidallyLocked || id === 'mercury') {
-                // Prime Meridian at u = 0.5 (x = w/2)
-                ctx.strokeStyle = '#10b981';
-                ctx.lineWidth = 5;
-                ctx.beginPath();
-                ctx.moveTo(w * 0.5, 0);
-                ctx.lineTo(w * 0.5, h);
-                ctx.stroke();
-
-                // Target bullseye at Sub-Planetary Point (u=0.5, v=0.5)
-                ctx.fillStyle = '#10b981';
-                ctx.beginPath();
-                ctx.arc(w * 0.5, h * 0.5, 14, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 3;
-                ctx.stroke();
-            }
+            drawLockMarkers(ctx, w, h, bodyData);
 
             const texture = new THREE.CanvasTexture(canvas);
             texture.anisotropy = 4;
+            applyPhotoMap(bodyData, texture);
             return texture;
+        }
+
+        // Draw a subtle Prime Meridian (0° Longitude) & Equator reference line on Tidally Locked moons & Mercury
+        function drawLockMarkers(ctx, w, h, bodyData) {
+            if (!bodyData.tidallyLocked && bodyData.id !== 'mercury') return;
+            const s = w / 1024; // marker sizes were tuned on a 1024px-wide map
+
+            // Prime Meridian at u = 0.5 (x = w/2)
+            ctx.strokeStyle = '#10b981';
+            ctx.lineWidth = 5 * s;
+            ctx.beginPath();
+            ctx.moveTo(w * 0.5, 0);
+            ctx.lineTo(w * 0.5, h);
+            ctx.stroke();
+
+            // Target bullseye at Sub-Planetary Point (u=0.5, v=0.5)
+            ctx.fillStyle = '#10b981';
+            ctx.beginPath();
+            ctx.arc(w * 0.5, h * 0.5, 14 * s, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 3 * s;
+            ctx.stroke();
+        }
+
+        /***********************************************************************
+         * PHOTOGRAPHIC SURFACE MAPS
+         * 2K maps from Solar System Scope (solarsystemscope.com/textures, CC BY 4.0).
+         * Each body starts with its procedural map, then the photo is painted into the
+         * same canvas texture once it loads. Moons without a photo keep the procedural map.
+         ***********************************************************************/
+        const PHOTO_MAPS = {
+            mercury: '2k_mercury.jpg',
+            venus: '2k_venus_atmosphere.jpg',
+            earth: '2k_earth_daymap.jpg',
+            moon: '2k_moon.jpg',
+            mars: '2k_mars.jpg',
+            jupiter: '2k_jupiter.jpg',
+            saturn: '2k_saturn.jpg',
+            uranus: '2k_uranus.jpg',
+            neptune: '2k_neptune.jpg'
+        };
+
+        // WebGL refuses to upload images read from file:// pages, so photos need http(s)
+        const canUsePhotoMaps = location.protocol !== 'file:';
+
+        function loadImage(src) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                img.onload = () => resolve(img);
+                img.onerror = reject;
+                img.src = src;
+            });
+        }
+
+        async function applyPhotoMap(bodyData, texture) {
+            const file = PHOTO_MAPS[bodyData.id];
+            if (!file || !canUsePhotoMaps) return;
+            try {
+                const [img, clouds] = await Promise.all([
+                    loadImage(`textures/${file}`),
+                    bodyData.id === 'earth' ? loadImage('textures/2k_earth_clouds.jpg') : null
+                ]);
+                const canvas = texture.image;
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                if (clouds) {
+                    // The cloud map is white-on-black, so screen-blend it over the surface
+                    ctx.globalCompositeOperation = 'screen';
+                    ctx.globalAlpha = 0.85;
+                    ctx.drawImage(clouds, 0, 0, canvas.width, canvas.height);
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.globalAlpha = 1;
+                }
+                drawLockMarkers(ctx, canvas.width, canvas.height, bodyData);
+                texture.needsUpdate = true;
+            } catch (err) {
+                // Keep the procedural map
+            }
+        }
+
+        // Cassini-measured ring opacity and colour; it also drives the ring shadow on Saturn
+        async function applySaturnRingPhoto(texture) {
+            if (!canUsePhotoMaps) return;
+            try {
+                const img = await loadImage('textures/2k_saturn_ring_alpha.png');
+                const canvas = texture.image;
+                canvas.width = img.width;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                texture.needsUpdate = true;
+            } catch (err) {
+                // Keep the procedural rings
+            }
         }
 
         // Procedural Ring Texture for Saturn & Uranus
@@ -1310,13 +1394,15 @@
             const grad = ctx.createLinearGradient(0, 0, 512, 0);
 
             if (isSaturn) {
-                grad.addColorStop(0.0, 'rgba(254, 240, 138, 0.0)');
-                grad.addColorStop(0.12, 'rgba(217, 119, 6, 0.35)');
-                grad.addColorStop(0.38, 'rgba(253, 224, 71, 0.85)');
-                grad.addColorStop(0.58, 'rgba(254, 249, 195, 0.9)');
-                grad.addColorStop(0.64, 'rgba(0, 0, 0, 0.08)'); // Cassini Division!
-                grad.addColorStop(0.69, 'rgba(250, 204, 21, 0.75)');
-                grad.addColorStop(0.92, 'rgba(161, 98, 7, 0.4)');
+                // Water-ice tan: faint C ring, dense bright B ring, Cassini Division, A ring
+                grad.addColorStop(0.0, 'rgba(150, 135, 115, 0.0)');
+                grad.addColorStop(0.12, 'rgba(150, 135, 115, 0.22)');
+                grad.addColorStop(0.36, 'rgba(214, 196, 166, 0.8)');
+                grad.addColorStop(0.58, 'rgba(232, 218, 192, 0.92)');
+                grad.addColorStop(0.62, 'rgba(60, 55, 50, 0.06)'); // Cassini Division!
+                grad.addColorStop(0.66, 'rgba(60, 55, 50, 0.06)');
+                grad.addColorStop(0.70, 'rgba(198, 182, 156, 0.66)');
+                grad.addColorStop(0.92, 'rgba(176, 160, 136, 0.5)');
                 grad.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
             } else {
                 grad.addColorStop(0.0, 'rgba(103, 232, 249, 0.0)');
@@ -1328,49 +1414,368 @@
 
             ctx.fillStyle = grad;
             ctx.fillRect(0, 0, 512, 64);
-            return new THREE.CanvasTexture(canvas);
+
+            // Thousands of ringlets: modulate opacity with smoothed radial noise
+            const img = ctx.getImageData(0, 0, 512, 64);
+            let n = 1, prev = 1;
+            for (let x = 0; x < 512; x++) {
+                n = 0.72 + 0.56 * Math.random();
+                prev = prev * 0.55 + n * 0.45;
+                for (let y = 0; y < 64; y++) {
+                    const i = (y * 512 + x) * 4 + 3;
+                    img.data[i] = Math.min(255, img.data[i] * prev);
+                }
+            }
+            ctx.putImageData(img, 0, 0);
+            const texture = new THREE.CanvasTexture(canvas);
+            if (isSaturn) applySaturnRingPhoto(texture);
+            return texture;
         }
 
-        // True 3D View-Independent Fresnel Corona Material for the Sun
-        // Eliminates flat sprite depth clipping & angle-dependent bright halo artifacts
-        function createSunCoronaMesh(scaleFactor, hexColor, falloffPower, baseOpacity) {
-            const geo = new THREE.SphereGeometry(scaleFactor, 48, 48);
+        /***********************************************************************
+         * 2b. PHYSICALLY-BASED SUN, SURFACE, ATMOSPHERE & RING SHADERS
+         * Light is computed in linear space and encoded to sRGB at the end.
+         * The Sun sits at the world origin, and each body reads its own centre
+         * and radius from its model matrix, so no per-frame uniforms are needed.
+         ***********************************************************************/
+        const GLSL_COLOR = `
+            vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
+            vec3 toSRGB(vec3 c) {
+                c = clamp(c, 0.0, 1.0);
+                return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+            }
+        `;
+
+        const GLSL_NOISE = `
+            float hash(vec3 p) {
+                p = fract(p * 0.1031);
+                p += dot(p, p.zyx + 31.32);
+                return fract((p.x + p.y) * p.z);
+            }
+            float noise(vec3 x) {
+                vec3 i = floor(x);
+                vec3 f = fract(x);
+                f = f * f * (3.0 - 2.0 * f);
+                return mix(
+                    mix(mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
+                        mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+                    mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
+                        mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y),
+                    f.z
+                );
+            }
+        `;
+
+        // Per-body optics. atmo: sRGB scattering tint; haze: limb haze over the disc;
+        // halo: atmosphere height above the surface (planet radii); regolith: Lommel–Seeliger
+        // mix for airless dusty surfaces (flat, evenly lit full disc like the real Moon).
+        const SURFACE_LOOKS = {
+            mercury: { regolith: 0.85 },
+            venus: { atmo: [1.0, 0.86, 0.62], haze: 0.55, halo: 0.07 },
+            earth: { atmo: [0.42, 0.66, 1.0], haze: 0.45, halo: 0.06, ocean: true },
+            moon: { regolith: 0.85 },
+            mars: { atmo: [0.95, 0.62, 0.42], haze: 0.18, halo: 0.03 },
+            jupiter: { atmo: [1.0, 0.9, 0.76], haze: 0.15, halo: 0.025 },
+            saturn: { atmo: [1.0, 0.92, 0.76], haze: 0.15, halo: 0.025 },
+            titan: { atmo: [1.0, 0.68, 0.32], haze: 0.75, halo: 0.09 },
+            uranus: { atmo: [0.62, 0.9, 1.0], haze: 0.3, halo: 0.04 },
+            neptune: { atmo: [0.45, 0.65, 1.0], haze: 0.3, halo: 0.04 },
+            triton: { atmo: [0.8, 0.85, 1.0], haze: 0.08, halo: 0.015, regolith: 0.5 }
+        };
+        const DEFAULT_LOOK = { regolith: 0.7 };
+
+        const BODY_VERTEX_SHADER = `
+            varying vec2 vUv;
+            varying vec3 vN;
+            varying vec3 vW;
+            varying vec3 vC;
+            varying float vR;
+            varying vec3 vSpin;
+            void main() {
+                vUv = uv;
+                vec4 w = modelMatrix * vec4(position, 1.0);
+                vW = w.xyz;
+                vN = normalize(mat3(modelMatrix) * normal);
+                vC = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+                vR = length(modelMatrix[0].xyz);
+                vSpin = normalize(mat3(modelMatrix) * vec3(0.0, 1.0, 0.0));
+                gl_Position = projectionMatrix * viewMatrix * w;
+            }
+        `;
+
+        function createPlanetSurfaceMaterial(bodyData, texture, ringTexture) {
+            const look = SURFACE_LOOKS[bodyData.id] || DEFAULT_LOOK;
+            return new THREE.ShaderMaterial({
+                uniforms: {
+                    uMap: { value: texture },
+                    uRingMap: { value: ringTexture },
+                    uRingIO: { value: new THREE.Vector2(ringTexture ? bodyData.ringInner : 0, ringTexture ? bodyData.ringOuter : 0) },
+                    uAtmo: { value: new THREE.Vector3(...(look.atmo || [0, 0, 0])) },
+                    uHaze: { value: look.haze || 0 },
+                    uRegolith: { value: look.regolith || 0 },
+                    uOcean: { value: look.ocean ? 1 : 0 }
+                },
+                vertexShader: BODY_VERTEX_SHADER,
+                fragmentShader: `
+                    uniform sampler2D uMap;
+                    uniform sampler2D uRingMap;
+                    uniform vec2 uRingIO;
+                    uniform vec3 uAtmo;
+                    uniform float uHaze;
+                    uniform float uRegolith;
+                    uniform float uOcean;
+                    varying vec2 vUv;
+                    varying vec3 vN;
+                    varying vec3 vW;
+                    varying vec3 vC;
+                    varying float vR;
+                    varying vec3 vSpin;
+                    ${GLSL_COLOR}
+                    void main() {
+                        vec3 N = normalize(vN);
+                        vec3 V = normalize(cameraPosition - vW);
+                        vec3 L = normalize(-vW);
+                        float ndl = dot(N, L);
+                        float mu = max(dot(N, V), 0.0);
+                        vec3 texel = texture2D(uMap, vUv).rgb;
+                        vec3 alb = toLinear(texel);
+
+                        // Soft terminator: irradiance from a Sun disc of finite angular size
+                        const float sa = 0.04;
+                        float irr = ndl >= sa ? ndl : (ndl <= -sa ? 0.0 : (ndl + sa) * (ndl + sa) / (4.0 * sa));
+
+                        // Lommel–Seeliger regolith: no limb darkening on airless dusty worlds
+                        float lit = mix(irr, 2.0 * irr / (irr + mu + 1e-3), uRegolith);
+
+                        // Ring shadow cast across the globe
+                        vec3 sun = vec3(1.0);
+                        if (uRingIO.y > 0.0 && ndl > 0.0) {
+                            vec3 P = (vW - vC) / vR;
+                            float ln = dot(L, vSpin);
+                            if (abs(ln) > 1e-4) {
+                                float s = -dot(P, vSpin) / ln;
+                                float q = length(P + L * s);
+                                if (s > 0.0 && q > uRingIO.x && q < uRingIO.y) {
+                                    float a = texture2D(uRingMap, vec2((q - uRingIO.x) / (uRingIO.y - uRingIO.x), 0.5)).a;
+                                    sun *= exp(log(max(1.0 - a, 1e-3)) / max(abs(ln), 0.05));
+                                }
+                            }
+                        }
+
+                        // Dim floor keeps night-side features (and lock markers) faintly readable
+                        vec3 c = alb * (lit * 1.35 * sun + 0.03);
+
+                        // Specular sun glint on open ocean
+                        if (uOcean > 0.5 && ndl > 0.0) {
+                            float sea = smoothstep(0.03, 0.12, texel.b - max(texel.r, texel.g));
+                            vec3 H = normalize(L + V);
+                            float F = 0.02 + 0.98 * pow(1.0 - max(dot(V, H), 0.0), 5.0);
+                            c += sea * pow(max(dot(N, H), 0.0), 90.0) * (0.25 + F) * sun * smoothstep(0.0, 0.2, ndl);
+                        }
+
+                        // Atmospheric limb haze, plus a warm twilight band along the terminator
+                        if (uHaze > 0.0) {
+                            float limb = pow(1.0 - mu, 2.0);
+                            float day = smoothstep(-0.2, 0.35, ndl);
+                            c = c * (1.0 - 0.5 * uHaze * limb) + toLinear(uAtmo) * limb * day * uHaze * 1.2;
+                            float tw = smoothstep(-0.12, 0.0, ndl) * (1.0 - smoothstep(0.0, 0.15, ndl));
+                            c += vec3(1.0, 0.45, 0.2) * tw * uHaze * 0.04;
+                        }
+
+                        gl_FragColor = vec4(toSRGB(c), 1.0);
+                    }
+                `
+            });
+        }
+
+        // Thin glowing shell beyond the limb: lit on the day side, brightest when backlit
+        function createAtmosphereShell(look) {
+            const top = 1 + look.halo;
             const mat = new THREE.ShaderMaterial({
                 uniforms: {
-                    glowColor: { value: new THREE.Color(hexColor) },
-                    falloff: { value: falloffPower },
-                    opacity: { value: baseOpacity }
+                    uTint: { value: new THREE.Vector3(...look.atmo) },
+                    uTop: { value: top }
                 },
-                vertexShader: `
-                    varying vec3 vNormal;
-                    varying vec3 vViewPosition;
+                vertexShader: BODY_VERTEX_SHADER,
+                fragmentShader: `
+                    uniform vec3 uTint;
+                    uniform float uTop;
+                    varying vec3 vW;
+                    varying vec3 vC;
+                    varying float vR;
+                    ${GLSL_COLOR}
                     void main() {
-                        vNormal = normalize(normalMatrix * normal);
-                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                        vViewPosition = -mvPosition.xyz;
-                        gl_Position = projectionMatrix * mvPosition;
+                        // vR is the shell radius; work in planet radii
+                        float R = vR / uTop;
+                        vec3 rd = normalize(vW - cameraPosition);
+                        vec3 oc = vC - cameraPosition;
+                        float tca = dot(oc, rd);
+                        float h = length(oc - rd * tca) / R;
+                        if (h < 1.0 || tca < 0.0) discard;
+
+                        vec3 pc = cameraPosition + rd * tca;
+                        vec3 up = normalize(pc - vC);
+                        vec3 L = normalize(-pc);
+                        float lit = smoothstep(-0.3, 0.4, dot(up, L));
+                        float fwd = pow(max(dot(rd, L), 0.0), 6.0) * smoothstep(-0.6, 0.2, dot(up, L));
+
+                        float x = (h - 1.0) / (uTop - 1.0);
+                        float dens = exp(-x * 4.0) * (1.0 - smoothstep(0.7, 1.0, x));
+                        vec3 col = toLinear(uTint) * dens * (lit + 1.5 * fwd) * 0.6;
+                        gl_FragColor = vec4(toSRGB(col), 1.0);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+            const shell = new THREE.Mesh(new THREE.SphereGeometry(top, 64, 32), mat);
+            shell.raycast = () => {}; // clicks go to the planet underneath
+            return shell;
+        }
+
+        // Ring particles: lit side vs. transmitted unlit side, and the planet's shadow across the rings
+        function createRingMaterial(ringTexture) {
+            return new THREE.ShaderMaterial({
+                uniforms: { uMap: { value: ringTexture } },
+                vertexShader: `
+                    varying vec2 vUv;
+                    varying vec3 vW;
+                    varying vec3 vC;
+                    varying float vR;
+                    varying vec3 vN;
+                    void main() {
+                        vUv = uv;
+                        vec4 w = modelMatrix * vec4(position, 1.0);
+                        vW = w.xyz;
+                        vC = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+                        vR = length(modelMatrix[0].xyz);
+                        vN = normalize(mat3(modelMatrix) * vec3(0.0, 0.0, 1.0));
+                        gl_Position = projectionMatrix * viewMatrix * w;
                     }
                 `,
                 fragmentShader: `
-                    uniform vec3 glowColor;
-                    uniform float falloff;
-                    uniform float opacity;
-                    varying vec3 vNormal;
-                    varying vec3 vViewPosition;
+                    uniform sampler2D uMap;
+                    varying vec2 vUv;
+                    varying vec3 vW;
+                    varying vec3 vC;
+                    varying float vR;
+                    varying vec3 vN;
+                    ${GLSL_COLOR}
                     void main() {
-                        vec3 normal = normalize(vNormal);
-                        vec3 viewDir = normalize(vViewPosition);
-                        float dotNV = max(0.0, dot(normal, viewDir));
-                        float intensity = pow(dotNV, falloff) * opacity;
-                        gl_FragColor = vec4(glowColor, intensity);
+                        vec4 t = texture2D(uMap, vec2(vUv.x, 0.5));
+                        vec3 toSun = normalize(-vW);
+                        vec3 d = vW - vC;
+                        float b = dot(d, toSun), c = dot(d, d) - vR * vR;
+                        float shade = (b < 0.0 && b * b - c > 0.0) ? 0.0 : 1.0;
+
+                        vec3 toEye = normalize(cameraPosition - vW);
+                        float s0 = dot(vN, toSun), s1 = dot(vN, toEye);
+                        float m0 = max(abs(s0), 0.02), m1 = max(abs(s1), 0.02);
+                        float tau = -log(max(1.0 - t.a, 1e-3));
+                        float f;
+                        if (s0 * s1 > 0.0) f = m0 / (m0 + m1) * (1.0 - exp(-tau * (1.0 / m0 + 1.0 / m1)));
+                        else f = abs(m0 - m1) < 1e-3 ? tau / m1 * exp(-tau / m1) : m0 / (m0 - m1) * (exp(-tau / m0) - exp(-tau / m1));
+
+                        float a = 1.0 - exp(-tau / m1);
+                        vec3 col = toLinear(t.rgb) * (1.8 * f * shade + 0.02 * a);
+                        gl_FragColor = vec4(toSRGB(col), a);
                     }
                 `,
-                side: THREE.BackSide,
-                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide,
                 transparent: true,
-                depthWrite: false
+                depthWrite: false,
+                blending: THREE.CustomBlending,
+                blendSrc: THREE.OneFactor,
+                blendDst: THREE.OneMinusSrcAlphaFactor
             });
-            return new THREE.Mesh(geo, mat);
+        }
+
+        // Limb-darkened photosphere with slowly boiling granulation
+        let sunPhotosphereMaterial = null;
+        function createSunPhotosphereMaterial() {
+            return new THREE.ShaderMaterial({
+                uniforms: { uTime: { value: 0 } },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vView;
+                    varying vec3 vP;
+                    void main() {
+                        vP = position;
+                        vNormal = normalize(normalMatrix * normal);
+                        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                        vView = -mv.xyz;
+                        gl_Position = projectionMatrix * mv;
+                    }
+                `,
+                fragmentShader: `
+                    uniform float uTime;
+                    varying vec3 vNormal;
+                    varying vec3 vView;
+                    varying vec3 vP;
+                    ${GLSL_COLOR}
+                    ${GLSL_NOISE}
+                    void main() {
+                        float mu = max(dot(normalize(vNormal), normalize(vView)), 0.0);
+                        float x = 1.0 - mu;
+                        // Quadratic limb darkening, strongest in blue, so the limb turns orange
+                        vec3 ld = 1.0 - vec3(0.47, 0.60, 0.75) * x - vec3(0.23, 0.17, 0.08) * x * x;
+
+                        vec3 p = normalize(vP);
+                        float t = uTime * 0.04;
+                        float gran = noise(p * 42.0 + vec3(0.0, t, t * 0.7)) * 0.6 + noise(p * 95.0 - vec3(t, 0.0, t)) * 0.4;
+                        float superg = noise(p * 7.0 + vec3(t * 0.2));
+                        float g = (0.84 + 0.3 * gran) * (0.94 + 0.12 * superg);
+
+                        vec3 lin = vec3(1.0, 0.74, 0.42) * 1.6 * ld * g;
+                        vec3 c = 1.0 - exp(-lin);
+                        gl_FragColor = vec4(toSRGB(c), 1.0);
+                    }
+                `
+            });
+        }
+
+        // Camera-facing glare around the Sun: a sum of exponentials like a real lens PSF, drawn only off the disc
+        function createSunGlow() {
+            const span = 8.0;
+            const mat = new THREE.ShaderMaterial({
+                uniforms: { uSpan: { value: span } },
+                vertexShader: `
+                    uniform float uSpan;
+                    varying vec2 vQ;
+                    void main() {
+                        float R = length(modelMatrix[0].xyz);
+                        vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+                        vQ = position.xy * uSpan;
+                        mv.xy += vQ * R;
+                        gl_Position = projectionMatrix * mv;
+                    }
+                `,
+                fragmentShader: `
+                    uniform float uSpan;
+                    varying vec2 vQ;
+                    ${GLSL_COLOR}
+                    void main() {
+                        float r = length(vQ);
+                        float edge = smoothstep(0.985, 1.02, r);
+                        if (edge <= 0.0) discard;
+                        float d = max(r - 1.0, 0.0);
+                        // Starts at the limb's own orange brightness so disc and glare join seamlessly
+                        float g = 0.35 * exp(-d * 9.0) + 0.05 * exp(-d * 2.5) + 0.006 * exp(-d * 0.5);
+                        g *= edge * (1.0 - smoothstep(0.7 * uSpan, uSpan, r));
+                        vec3 c = 1.0 - exp(-vec3(1.0, 0.7, 0.4) * g * 2.0);
+                        float n = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+                        gl_FragColor = vec4(max(toSRGB(c) + n / 255.0, 0.0), 1.0);
+                    }
+                `,
+                transparent: true,
+                depthWrite: false,
+                blending: THREE.AdditiveBlending
+            });
+            const glow = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
+            glow.frustumCulled = false;
+            glow.raycast = () => {};
+            return glow;
         }
 
         /***********************************************************************
@@ -1716,13 +2121,7 @@
             controls.minDistance = 1.2;
             controls.maxDistance = 1200;
 
-            // Lighting: Ambient starlight + intense Central Solar PointLight
-            const ambientLight = new THREE.AmbientLight(0x334155, 0.85);
-            scene.add(ambientLight);
-
-            const sunLight = new THREE.PointLight(0xfffbeb, 2.4, 2500, 0.4);
-            sunLight.position.set(0, 0, 0);
-            scene.add(sunLight);
+            // No scene lights: every body shader lights itself from the Sun at the world origin
 
             createStarfield();
             applyTrueScaleRatios();
@@ -1883,34 +2282,85 @@
             });
         }
 
-        // Crisp, anti-aliased circular star shader (eliminates square GL_POINTS artifacts)
-        function createStarPointsShaderMaterial() {
+        // Stars as a telescope sees them: a Gaussian core sized by magnitude, a soft halo
+        // for the brightest, and faint four-point diffraction spikes for the very brightest
+        function createStarPointsShaderMaterial(dpr) {
             return new THREE.ShaderMaterial({
+                uniforms: { uDpr: { value: dpr } },
                 transparent: true,
                 depthWrite: false,
                 blending: THREE.AdditiveBlending,
                 vertexColors: true,
                 vertexShader: `
-                    attribute float aSize;
+                    attribute float aMag;
+                    uniform float uDpr;
                     varying vec3 vColor;
+                    varying float vCore;
+                    varying float vHalo;
+                    varying float vBright;
+                    varying float vSize;
+                    varying float vSpike;
                     void main() {
+                        float m = aMag;
+                        float core = m < 2.0 ? 1.25 : (m < 3.5 ? 0.85 : 0.55);
+                        float halo = m < 1.0 ? 5.0 : (m < 2.0 ? 3.0 : 0.0);
+                        vBright = clamp(0.2 + 0.75 * pow(max(0.0, (6.5 - m) / 5.5), 1.3), 0.0, 0.97)
+                                * (m > 7.5 ? max(0.0, 1.0 - (m - 7.5)) : 1.0);
+                        vSpike = m < 1.0 ? (6.0 + 5.0 * min(1.0 - m, 3.0)) * uDpr : 0.0;
+                        vSize = 2.0 * (max(max(core, halo), vSpike / uDpr * 2.2) + 1.0) * uDpr;
+                        vCore = core * uDpr;
+                        vHalo = halo * uDpr;
                         vColor = color;
-                        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                        gl_PointSize = aSize;
-                        gl_Position = projectionMatrix * mvPosition;
+                        gl_PointSize = vSize;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
                     }
                 `,
                 fragmentShader: `
                     varying vec3 vColor;
+                    varying float vCore;
+                    varying float vHalo;
+                    varying float vBright;
+                    varying float vSize;
+                    varying float vSpike;
                     void main() {
-                        vec2 uv = gl_PointCoord - vec2(0.5);
-                        float dist = length(uv) * 2.0;
-                        if (dist > 1.0) discard;
-                        float alpha = pow(1.0 - dist, 2.2);
-                        gl_FragColor = vec4(vColor, alpha * 0.9);
+                        vec2 q = (gl_PointCoord - 0.5) * vSize;
+                        float r = length(q);
+                        float sig = max(vCore * 0.7, 0.6);
+                        float a = vBright * exp(-r * r / (2.0 * sig * sig));
+                        if (vHalo > 0.0) a += (vHalo > 6.0 * vCore ? 0.5 : 0.18) * vBright * exp(-r * r / (0.18 * vHalo * vHalo));
+                        if (vSpike > 0.0) {
+                            float s = exp(-abs(q.x) * 1.6) * exp(-abs(q.y) / vSpike) + exp(-abs(q.y) * 1.6) * exp(-abs(q.x) / vSpike);
+                            a += 0.35 * vBright * s;
+                        }
+                        if (a < 0.002) discard;
+                        gl_FragColor = vec4(vColor * a, 1.0);
                     }
                 `
             });
+        }
+
+        // Apparent magnitudes follow star counts: N(<m) grows ~10^(k·m), so most stars are faint
+        function sampleStarMagnitude(faintest, k) {
+            return faintest + Math.log10(Math.max(Math.random(), 1e-6)) / k;
+        }
+
+        // B−V colour index → blackbody tint (Ballesteros temperature, then a Planckian RGB fit),
+        // desaturated the way the eye and a camera sensor see stars
+        function starColorFromBV(bv) {
+            const t = 4600 * (1 / (0.92 * bv + 1.7) + 1 / (0.92 * bv + 0.62)) / 100;
+            const r = t <= 66 ? 255 : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+            const g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+            const b = t >= 66 ? 255 : (t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307);
+            const rgb = [r, g, b].map(v => THREE.MathUtils.clamp(v, 0, 255));
+            const max = Math.max(...rgb);
+            return rgb.map(v => 0.35 + 0.65 * v / max);
+        }
+
+        // Mostly G/K stars with a minority of hot blue-white A/B stars
+        function sampleStarBV() {
+            const gauss = () => Math.random() + Math.random() + Math.random() - 1.5;
+            const bv = Math.random() < 0.3 ? gauss() * 0.4 : 1.0 + gauss() * 0.7;
+            return THREE.MathUtils.clamp(bv, -0.3, 2.0);
         }
 
         function createStarfield() {
@@ -1964,7 +2414,7 @@
             const mwStarCount = 9000;
             const mwPositions = new Float32Array(mwStarCount * 3);
             const mwColors = new Float32Array(mwStarCount * 3);
-            const mwSizes = new Float32Array(mwStarCount);
+            const mwMags = new Float32Array(mwStarCount);
             const gauss = () => Math.random() + Math.random() + Math.random() - 1.5;
 
             for (let i = 0; i < mwStarCount; i++) {
@@ -1984,47 +2434,32 @@
                 mwPositions[i * 3 + 1] = ly;
                 mwPositions[i * 3 + 2] = lz;
 
-                // Realistic stellar colours: mostly white/pale-yellow, some orange giants, few blue-white
-                const tint = Math.random();
-                let cr = 0.95, cg = 0.95, cb = 0.97, cssColor = 'rgba(241, 245, 249, 0.72)';
-                if (tint > 0.88) {
-                    cr = 0.72; cg = 0.84; cb = 1.0;
-                    cssColor = 'rgba(191, 219, 254, 0.8)';
-                } else if (tint > 0.62) {
-                    cr = 1.0; cg = 0.90; cb = 0.74;
-                    cssColor = 'rgba(254, 240, 200, 0.75)';
-                } else if (tint > 0.48) {
-                    cr = 1.0; cg = 0.76; cb = 0.52;
-                    cssColor = 'rgba(253, 200, 140, 0.72)';
-                }
-
-                // Most stars are faint; a handful stand out
-                const brightness = 0.25 + Math.pow(Math.random(), 2.4) * 0.75;
-                mwColors[i * 3] = cr * brightness;
-                mwColors[i * 3 + 1] = cg * brightness;
-                mwColors[i * 3 + 2] = cb * brightness;
-
-                // Fine pinpoint star sizes (mostly ~1px, rarely up to ~3.5px)
-                mwSizes[i] = (0.9 + Math.pow(Math.random(), 4.0) * 2.6) * dpr;
+                // Crowded, mostly faint band stars
+                const [cr, cg, cb] = starColorFromBV(sampleStarBV());
+                mwColors[i * 3] = cr;
+                mwColors[i * 3 + 1] = cg;
+                mwColors[i * 3 + 2] = cb;
+                mwMags[i] = sampleStarMagnitude(8.5, 0.55);
 
                 if (i % 6 === 0) {
                     const worldDir = new THREE.Vector3(lx, ly, lz).normalize().applyEuler(galaxyGroup.rotation);
-                    starfieldPoints.push({ dir: worldDir, cssColor, size: 1.3 + (tint > 0.88 ? 0.8 : 0) });
+                    const css = `rgba(${Math.round(cr * 255)}, ${Math.round(cg * 255)}, ${Math.round(cb * 255)}, 0.75)`;
+                    starfieldPoints.push({ dir: worldDir, cssColor: css, size: mwMags[i] < 4 ? 2.1 : 1.3 });
                 }
             }
 
             const mwGeo = new THREE.BufferGeometry();
             mwGeo.setAttribute('position', new THREE.BufferAttribute(mwPositions, 3));
             mwGeo.setAttribute('color', new THREE.BufferAttribute(mwColors, 3));
-            mwGeo.setAttribute('aSize', new THREE.BufferAttribute(mwSizes, 1));
+            mwGeo.setAttribute('aMag', new THREE.BufferAttribute(mwMags, 1));
 
-            galaxyGroup.add(new THREE.Points(mwGeo, createStarPointsShaderMaterial()));
+            galaxyGroup.add(new THREE.Points(mwGeo, createStarPointsShaderMaterial(dpr)));
 
             // 3. All-Sky Background & Prominent Navigation Stars (2,000 isotropic stars)
             const bgStarCount = 2000;
             const bgPositions = new Float32Array(bgStarCount * 3);
             const bgColors = new Float32Array(bgStarCount * 3);
-            const bgSizes = new Float32Array(bgStarCount);
+            const bgMags = new Float32Array(bgStarCount);
 
             for (let i = 0; i < bgStarCount; i++) {
                 const r = 1700 + Math.random() * 500;
@@ -2039,17 +2474,8 @@
                 bgPositions[i * 3 + 1] = sy;
                 bgPositions[i * 3 + 2] = sz;
 
-                const tint = Math.random();
-                const brightness = 0.4 + Math.pow(Math.random(), 1.6) * 0.6;
-                if (tint > 0.8) {
-                    bgColors[i * 3] = 0.72 * brightness; bgColors[i * 3 + 1] = 0.88 * brightness; bgColors[i * 3 + 2] = 1.0 * brightness;
-                } else if (tint > 0.6) {
-                    bgColors[i * 3] = 1.0 * brightness; bgColors[i * 3 + 1] = 0.90 * brightness; bgColors[i * 3 + 2] = 0.72 * brightness;
-                } else {
-                    bgColors[i * 3] = 0.95 * brightness; bgColors[i * 3 + 1] = 0.95 * brightness; bgColors[i * 3 + 2] = 0.98 * brightness;
-                }
-
-                bgSizes[i] = (1.3 + Math.pow(Math.random(), 3.2) * 3.0) * dpr;
+                bgColors.set(starColorFromBV(sampleStarBV()), i * 3);
+                bgMags[i] = sampleStarMagnitude(7.0, 0.45);
 
                 if (i % 3 === 0) {
                     const worldDir = new THREE.Vector3(sx, sy, sz).normalize().applyEuler(galaxyGroup.rotation);
@@ -2060,9 +2486,9 @@
             const bgGeo = new THREE.BufferGeometry();
             bgGeo.setAttribute('position', new THREE.BufferAttribute(bgPositions, 3));
             bgGeo.setAttribute('color', new THREE.BufferAttribute(bgColors, 3));
-            bgGeo.setAttribute('aSize', new THREE.BufferAttribute(bgSizes, 1));
+            bgGeo.setAttribute('aMag', new THREE.BufferAttribute(bgMags, 1));
 
-            galaxyGroup.add(new THREE.Points(bgGeo, createStarPointsShaderMaterial()));
+            galaxyGroup.add(new THREE.Points(bgGeo, createStarPointsShaderMaterial(dpr)));
         }
 
         function buildCelestialHierarchy() {
@@ -2089,18 +2515,15 @@
 
                 // 4. Textured Sphere Mesh (rotates around local Y axis inside tiltGroup)
                 const radius = visualSettings.exploreScale ? data.exploreRadius : data.trueRadius;
-                const sphereGeo = new THREE.SphereGeometry(1, 48, 48); // Base unit radius, scaled dynamically
-                const texture = createProceduralTexture(data);
+                const sphereGeo = new THREE.SphereGeometry(1, 96, 64); // Base unit radius, scaled dynamically
+                const ringTexture = data.hasRings ? createRingTexture(data.id === 'saturn') : null;
 
                 let mat;
                 if (data.id === 'sun') {
-                    mat = new THREE.MeshBasicMaterial({ map: texture });
+                    sunPhotosphereMaterial = createSunPhotosphereMaterial();
+                    mat = sunPhotosphereMaterial;
                 } else {
-                    mat = new THREE.MeshStandardMaterial({
-                        map: texture,
-                        roughness: 0.78,
-                        metalness: 0.05
-                    });
+                    mat = createPlanetSurfaceMaterial(data, createProceduralTexture(data), ringTexture);
                 }
 
                 const mesh = new THREE.Mesh(sphereGeo, mat);
@@ -2108,12 +2531,13 @@
                 mesh.userData = { bodyId: data.id };
                 tiltGroup.add(mesh);
 
-                // Sun 3D Volumetric Corona Shells (Angle-Invariant, No Billboard Clipping)
                 if (data.id === 'sun') {
-                    const innerCorona = createSunCoronaMesh(1.22, 0xfef08a, 2.6, 0.55);
-                    const outerCorona = createSunCoronaMesh(1.65, 0xf97316, 4.0, 0.32);
-                    mesh.add(innerCorona);
-                    mesh.add(outerCorona);
+                    mesh.add(createSunGlow());
+                }
+
+                const look = SURFACE_LOOKS[data.id];
+                if (look && look.atmo) {
+                    mesh.add(createAtmosphereShell(look));
                 }
 
                 // Planetary Rings (Saturn & Uranus)
@@ -2129,13 +2553,7 @@
                         const u = (v3.length() - data.ringInner) / (data.ringOuter - data.ringInner);
                         uvs.setXY(i, u, 0.5);
                     }
-                    const ringMat = new THREE.MeshStandardMaterial({
-                        map: createRingTexture(data.id === 'saturn'),
-                        side: THREE.DoubleSide,
-                        transparent: true,
-                        roughness: 0.6
-                    });
-                    ringMesh = new THREE.Mesh(ringGeo, ringMat);
+                    ringMesh = new THREE.Mesh(ringGeo, createRingMaterial(ringTexture));
                     ringMesh.rotation.x = Math.PI / 2;
                     mesh.add(ringMesh);
                 }
@@ -3123,6 +3541,10 @@
             // Keep the Milky Way SkyDome centered on the camera so it acts as a true infinite skybox
             if (galaxyGroupRef) {
                 galaxyGroupRef.position.copy(camera.position);
+            }
+
+            if (sunPhotosphereMaterial) {
+                sunPhotosphereMaterial.uniforms.uTime.value = now / 1000;
             }
 
             updateFloatingLabels();
