@@ -2731,7 +2731,7 @@
                 vec2 dir = sNext - sPrev;
                 dir = length(dir) > 1e-6 ? normalize(dir) : vec2(1.0, 0.0);
                 vec2 normal = vec2(-dir.y, dir.x) / aspect;
-                float halfWidthPx = uWidth * (0.25 + 0.75 * aFade);
+                float halfWidthPx = uWidth * (0.35 + 0.65 * aFade);
                 clipCurr.xy += normal * aSide * halfWidthPx * 2.0 / uResolution.y * clipCurr.w;
                 gl_Position = clipCurr;
                 vFade = aFade;
@@ -2778,7 +2778,7 @@
                 uniforms: {
                     uResolution: orbitTrailUniforms.uResolution,
                     uColor: { value: new THREE.Color(hexColor || 0x38bdf8) },
-                    uWidth: { value: 1.0 } // half-width in px, resized each frame to match the body on screen
+                    uWidth: { value: 1.5 } // half-width in px at the body: a touch wider than the 1px orbit line
                 },
                 vertexShader: ORBIT_TRAIL_VERTEX_SHADER,
                 fragmentShader: ORBIT_TRAIL_FRAGMENT_SHADER,
@@ -2790,17 +2790,6 @@
             const mesh = new THREE.Mesh(geo, mat);
             mesh.frustumCulled = false; // positions are rewritten every frame
             return mesh;
-        }
-
-        // Tail is a fraction of the body's on-screen radius, so it stays a hairline in the overview
-        // and only fattens when zoomed in close.
-        const _trailWorldPos = new THREE.Vector3();
-        function orbitTrailHalfWidthPx(node, radius) {
-            node.positionNode.getWorldPosition(_trailWorldPos);
-            const camDist = Math.max(camera.position.distanceTo(_trailWorldPos), 1e-3);
-            const viewportH = orbitTrailUniforms.uResolution.value.y;
-            const radiusPx = radius / camDist * (viewportH * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
-            return THREE.MathUtils.clamp(radiusPx * 0.3, 0.6, node.data.parentId ? 2.0 : 3.0);
         }
 
         function updateOrbitTrail(trail, orbitAngle, dist, trailSign) {
@@ -2857,7 +2846,6 @@
                     // Tail points opposite to the direction of travel (retrograde orbits and reversed time flip it)
                     if (node.orbitTrail) {
                         updateOrbitTrail(node.orbitTrail, orbitAngle, dist, Math.sign(d.orbitalPeriod) * timeDirection);
-                        node.orbitTrail.material.uniforms.uWidth.value = orbitTrailHalfWidthPx(node, radius);
                     }
 
                     // Update dashed gravity line pointing from moon back to parent origin (0,0,0 in orbitPlaneGroup)
