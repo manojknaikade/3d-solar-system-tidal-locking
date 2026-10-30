@@ -1590,7 +1590,7 @@
 
         // Thin glowing shell beyond the limb: lit on the day side, brightest when backlit
         function createAtmosphereShell(look) {
-            const top = 1 + look.halo;
+            const top = 1 + look.halo * 2.0; // headroom for the density to taper off
             const mat = new THREE.ShaderMaterial({
                 uniforms: {
                     uTint: { value: new THREE.Vector3(...look.atmo) },
@@ -1605,13 +1605,12 @@
                     varying float vR;
                     ${GLSL_COLOR}
                     void main() {
-                        // vR is the shell radius; work in planet radii
-                        float R = vR / uTop;
+                        // vR is the planet radius (the shell's extra height lives in its geometry); work in planet radii
                         vec3 rd = normalize(vW - cameraPosition);
                         vec3 oc = vC - cameraPosition;
                         float tca = dot(oc, rd);
-                        float h = length(oc - rd * tca) / R;
-                        if (h < 1.0 || tca < 0.0) discard;
+                        float h = length(oc - rd * tca) / vR;
+                        if (h < 1.0 || h > uTop || tca < 0.0) discard;
 
                         vec3 pc = cameraPosition + rd * tca;
                         vec3 up = normalize(pc - vC);
@@ -1619,8 +1618,9 @@
                         float lit = smoothstep(-0.3, 0.4, dot(up, L));
                         float fwd = pow(max(dot(rd, L), 0.0), 6.0) * smoothstep(-0.6, 0.2, dot(up, L));
 
+                        // Exponential air density, eased to exactly zero (with zero slope) at the shell top
                         float x = (h - 1.0) / (uTop - 1.0);
-                        float dens = exp(-x * 4.0) * (1.0 - smoothstep(0.7, 1.0, x));
+                        float dens = exp(-x * 5.0) * (1.0 - x) * (1.0 - x);
                         vec3 col = toLinear(uTint) * dens * (lit + 1.5 * fwd) * 0.6;
                         gl_FragColor = vec4(toSRGB(col), 1.0);
                     }
@@ -1740,15 +1740,23 @@
             const span = 8.0;
             const mat = new THREE.ShaderMaterial({
                 uniforms: { uSpan: { value: span } },
+                // The quad faces along the line of sight to the Sun (not the camera axis) and is
+                // scaled to the silhouette radius, so off-centre views never tilt glow over the limb
                 vertexShader: `
                     uniform float uSpan;
                     varying vec2 vQ;
                     void main() {
                         float R = length(modelMatrix[0].xyz);
-                        vec4 mv = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+                        vec3 c = (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+                        float D = length(c);
+                        vec3 los = c / D;
+                        vec3 right = cross(los, vec3(0.0, 1.0, 0.0));
+                        right = length(right) > 1e-4 ? normalize(right) : vec3(1.0, 0.0, 0.0);
+                        vec3 up = cross(right, los);
+                        float silhouette = R * D / sqrt(max(D * D - R * R, 1e-6));
                         vQ = position.xy * uSpan;
-                        mv.xy += vQ * R;
-                        gl_Position = projectionMatrix * mv;
+                        vec3 mv = c + (right * vQ.x + up * vQ.y) * silhouette;
+                        gl_Position = projectionMatrix * vec4(mv, 1.0);
                     }
                 `,
                 fragmentShader: `
