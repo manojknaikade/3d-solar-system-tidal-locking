@@ -671,6 +671,7 @@
                 rotationPeriod: 58.646, // Exact 2/3 of 87.969!
                 axialTilt: 0.03,
                 inclination: 7.0,
+                ascendingNode: 48.33, // Longitude of ascending node on the ecliptic (J2000)
                 tidallyLocked: false,
                 spinOrbitRatio: '3:2 Resonance',
                 resonance: '3:2 Spin-Orbit Resonance (3 rotations per 2 orbits)',
@@ -692,6 +693,7 @@
                 rotationPeriod: -243.025, // Negative = Retrograde!
                 axialTilt: 177.36,
                 inclination: 3.39,
+                ascendingNode: 76.68, // Longitude of ascending node on the ecliptic (J2000)
                 tidallyLocked: false,
                 resonance: 'Retrograde Spin (Sun rises in the West)',
                 distanceLabel: '0.72 AU',
@@ -712,6 +714,7 @@
                 rotationPeriod: 0.997269,
                 axialTilt: 23.44,
                 inclination: 0.0,
+                ascendingNode: -11.26, // Longitude of ascending node on the ecliptic (J2000)
                 tidallyLocked: false,
                 resonance: 'Prograde Rotation (23h 56m sidereal day)',
                 distanceLabel: '1.00 AU',
@@ -733,6 +736,7 @@
                 rotationPeriod: 27.32166, // 1:1 Tidal lock!
                 axialTilt: 6.68,
                 inclination: 5.14,
+                inclinationRef: 'ecliptic', // Unlike other moons, measured against the ecliptic, not Earth's equator
                 tidallyLocked: true,
                 resonance: '1:1 Tidally Locked (Synchronous Rotation)',
                 distanceLabel: '384,400 km from Earth',
@@ -753,6 +757,7 @@
                 rotationPeriod: 1.02595, // 24h 37m
                 axialTilt: 25.19,
                 inclination: 1.85,
+                ascendingNode: 49.56, // Longitude of ascending node on the ecliptic (J2000)
                 tidallyLocked: false,
                 resonance: 'Earth-like Sol (24h 37m) & 25.2° Tilt',
                 distanceLabel: '1.52 AU',
@@ -794,7 +799,7 @@
                 orbitalPeriod: 1.263,
                 rotationPeriod: 1.263,
                 axialTilt: 0.9,
-                inclination: 1.79,
+                inclination: 0.93,
                 tidallyLocked: true,
                 resonance: '1:1 Tidally Locked to Mars',
                 distanceLabel: '23,463 km from Mars',
@@ -814,7 +819,8 @@
                 orbitalPeriod: 4332.59,
                 rotationPeriod: 0.4135, // 9h 55m!
                 axialTilt: 3.13,
-                inclination: 1.31,
+                inclination: 1.30,
+                ascendingNode: 100.46, // Longitude of ascending node on the ecliptic (J2000)
                 tidallyLocked: false,
                 resonance: 'Rapid Rotation (9h 55m day) & Laplace Moon Resonance',
                 distanceLabel: '5.20 AU',
@@ -919,6 +925,7 @@
                 rotationPeriod: 0.444, // 10h 39m
                 axialTilt: 26.73,
                 inclination: 2.49,
+                ascendingNode: 113.67, // Longitude of ascending node on the ecliptic (J2000)
                 tidallyLocked: false,
                 hasRings: true,
                 ringInner: 1.35,
@@ -963,7 +970,7 @@
                 orbitalPeriod: 1.370,
                 rotationPeriod: 1.370,
                 axialTilt: 0.0,
-                inclination: 0.02,
+                inclination: 0.01,
                 tidallyLocked: true,
                 resonance: '1:1 Tidally Locked (2:1 Resonance with Dione)',
                 distanceLabel: '238,000 km from Saturn',
@@ -984,6 +991,7 @@
                 rotationPeriod: -0.7183, // 17h 14m Retrograde
                 axialTilt: 97.77,
                 inclination: 0.77,
+                ascendingNode: 74.01, // Longitude of ascending node on the ecliptic (J2000)
                 tidallyLocked: false,
                 hasRings: true,
                 ringInner: 1.4,
@@ -1028,6 +1036,7 @@
                 rotationPeriod: 0.6713, // 16h 6m
                 axialTilt: 28.32,
                 inclination: 1.77,
+                ascendingNode: 131.78, // Longitude of ascending node on the ecliptic (J2000)
                 tidallyLocked: false,
                 resonance: 'Prograde Spin (16h 6m) & Retrograde Moon Triton',
                 distanceLabel: '30.05 AU',
@@ -1048,7 +1057,7 @@
                 orbitalPeriod: -5.877, // Negative = Retrograde orbit!
                 rotationPeriod: -5.877, // Tidally locked in retrograde!
                 axialTilt: 0.0,
-                inclination: 23.0,
+                inclination: 23.1, // 156.9° retrograde to Neptune's equator = 23.1° plane, motion reversed
                 tidallyLocked: true,
                 resonance: '1:1 Tidally Locked in a Retrograde Orbit',
                 distanceLabel: '354,759 km from Neptune',
@@ -2505,12 +2514,16 @@
 
             CELESTIAL_DATA.forEach((data, idx) => {
                 // 1. Inclined Orbital Plane Group (attached to Sun or Parent Planet's positionNode)
+                // Planets tilt about their line of nodes. Moon inclinations are measured from the parent's
+                // equator, so they stack on the parent's axial tilt (same tilt axis as the parent's tiltGroup).
                 const orbitPlaneGroup = new THREE.Group();
-                orbitPlaneGroup.rotation.z = THREE.MathUtils.degToRad(data.inclination || 0);
-
-                // For Uranus's moon Titania, tilt its orbital plane to match Uranus's 97.77° equator!
-                if (data.parentId === 'uranus') {
-                    orbitPlaneGroup.rotation.z = THREE.MathUtils.degToRad(97.77);
+                const parentData = data.parentId && bodyNodes[data.parentId] ? bodyNodes[data.parentId].data : null;
+                if (parentData && data.inclinationRef !== 'ecliptic') {
+                    orbitPlaneGroup.rotation.z = THREE.MathUtils.degToRad((parentData.axialTilt || 0) + (data.inclination || 0));
+                } else {
+                    const node = THREE.MathUtils.degToRad(data.ascendingNode || 0);
+                    const nodeLine = new THREE.Vector3(Math.cos(node), 0, -Math.sin(node));
+                    orbitPlaneGroup.quaternion.setFromAxisAngle(nodeLine, THREE.MathUtils.degToRad(data.inclination || 0));
                 }
 
                 // 2. Position Node (moves along the circular/elliptical orbit)
@@ -2616,7 +2629,7 @@
                     orbitLine = buildOrbitCircleLine(dist, data.color, !!data.parentId);
                     orbitPlaneGroup.add(orbitLine);
 
-                    orbitTrail = buildOrbitTrail(data.color, !!data.parentId);
+                    orbitTrail = buildOrbitTrail(data.color);
                     orbitPlaneGroup.add(orbitTrail);
 
                     // Dashed Gold Line connecting a tidally locked moon (or Mercury) to its parent center
@@ -2739,7 +2752,7 @@
             }
         `;
 
-        function buildOrbitTrail(hexColor, isMoon) {
+        function buildOrbitTrail(hexColor) {
             const n = ORBIT_TRAIL_SEGMENTS + 1;
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n * 2 * 3), 3));
@@ -2765,7 +2778,7 @@
                 uniforms: {
                     uResolution: orbitTrailUniforms.uResolution,
                     uColor: { value: new THREE.Color(hexColor || 0x38bdf8) },
-                    uWidth: { value: isMoon ? 2.5 : 4.0 }
+                    uWidth: { value: 1.0 } // half-width in px, resized each frame to match the body on screen
                 },
                 vertexShader: ORBIT_TRAIL_VERTEX_SHADER,
                 fragmentShader: ORBIT_TRAIL_FRAGMENT_SHADER,
@@ -2777,6 +2790,17 @@
             const mesh = new THREE.Mesh(geo, mat);
             mesh.frustumCulled = false; // positions are rewritten every frame
             return mesh;
+        }
+
+        // Tail is a fraction of the body's on-screen radius, so it stays a hairline in the overview
+        // and only fattens when zoomed in close.
+        const _trailWorldPos = new THREE.Vector3();
+        function orbitTrailHalfWidthPx(node, radius) {
+            node.positionNode.getWorldPosition(_trailWorldPos);
+            const camDist = Math.max(camera.position.distanceTo(_trailWorldPos), 1e-3);
+            const viewportH = orbitTrailUniforms.uResolution.value.y;
+            const radiusPx = radius / camDist * (viewportH * 0.5) / Math.tan(THREE.MathUtils.degToRad(camera.fov) * 0.5);
+            return THREE.MathUtils.clamp(radiusPx * 0.3, 0.6, node.data.parentId ? 2.0 : 3.0);
         }
 
         function updateOrbitTrail(trail, orbitAngle, dist, trailSign) {
@@ -2833,6 +2857,7 @@
                     // Tail points opposite to the direction of travel (retrograde orbits and reversed time flip it)
                     if (node.orbitTrail) {
                         updateOrbitTrail(node.orbitTrail, orbitAngle, dist, Math.sign(d.orbitalPeriod) * timeDirection);
+                        node.orbitTrail.material.uniforms.uWidth.value = orbitTrailHalfWidthPx(node, radius);
                     }
 
                     // Update dashed gravity line pointing from moon back to parent origin (0,0,0 in orbitPlaneGroup)
@@ -3337,7 +3362,7 @@
                 const orbitAngle = node.initialPhase + (simDays / d.orbitalPeriod) * Math.PI * 2;
                 const r = realOrbitRadiusKm(d);
                 pos.set(Math.cos(orbitAngle) * r, 0, -Math.sin(orbitAngle) * r);
-                pos.applyEuler(node.orbitPlaneGroup.rotation);
+                pos.applyQuaternion(node.orbitPlaneGroup.getWorldQuaternion(new THREE.Quaternion()));
             }
             if (d.parentId) pos.add(getRealPositionKm(d.parentId));
             return pos;
